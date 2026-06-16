@@ -1,0 +1,62 @@
+html {
+  color-scheme: light;
+  background: var(--cp-bg);
+}
+
+body {
+  background:
+    radial-gradient(circle at 8% 6%, rgba(79, 124, 255, 0.11), transparent 27rem),
+    radial-gradient(circle at 92% 16%, rgba(255, 122, 89, 0.10), transparent 25rem),
+    radial-gradient(circle at 72% 93%, rgba(139, 108, 255, 0.09), transparent 29rem),
+    var(--cp-bg) !important;
+  color: var(--cp-text) !important;
+  min-height: 100dvh;
+  padding: 10px 18px 58px !important;
+}
+
+body.cp-modal-open {
+  overflow: hidden;
+}
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  border-radius: 999px;
+  pointer-events: none;
+  animation: cpFloat 14s ease-in-out infinite alternate;
+}
+
+body::before {
+  width: 110px;
+  height: 110px;
+  top: 37vh;
+  left: 5vw;
+  background: linear-gradient(135deg, rgba(79,124,255,.10), rgba(56,201,154,.05));
+  transform: rotate(18deg);
+}
+
+body::after {
+  width: 78px;
+  height: 78px;
+  right: 7vw;
+  bottom: 15vh;
+  background: linear-gradient(135deg, rgba(255,122,89,.10), rgba(139,108,255,.06));
+  animation-delay: -5s;
+}
+
+@keyframes cpFloat {
+  to { transform: translate3d(0, -20px, 0) rotate(28deg); }
+}
+
+#global-loader {
+  background: var(--cp-bg) !important;
+  color: var(--cp-text) !important;
+}
+
+#global-loader > div:last-child {
+  border-color: rgba(79,124,255,.12) !important;
+  border-top-color: var(--cp-blue) !important;
+}
+

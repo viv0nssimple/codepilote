@@ -1,0 +1,88 @@
+header {
+  width: min(1120px, 100%) !important;
+  min-height: 68px;
+  margin: 0 auto 8px;
+  padding: 10px 8px !important;
+  background: transparent !important;
+}
+
+.logo {
+  font-family: "Outfit", "Inter", sans-serif !important;
+  font-size: clamp(1.65rem, 3vw, 2.3rem) !important;
+  letter-spacing: -.06em !important;
+  background: linear-gradient(115deg, #315ee8 0%, #7e61ee 55%, #ff7656 100%) !important;
+  background-size: 100% auto !important;
+  animation: none !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.logo::after {
+  width: 10px !important;
+  height: 10px !important;
+  margin-top: 2px !important;
+  background: var(--cp-orange) !important;
+  box-shadow: 0 0 0 6px rgba(255,122,89,.10);
+}
+
+.header-actions {
+  margin-top: 0 !important;
+  gap: 8px !important;
+  flex-wrap: nowrap !important;
+}
+
+.header-btn,
+#header-level-label {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cp-line) !important;
+  background: rgba(255,255,255,.83) !important;
+  color: var(--cp-text) !important;
+  box-shadow: 0 8px 24px rgba(34,48,78,.06) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  text-shadow: none !important;
+}
+
+#header-user {
+  color: var(--cp-text) !important;
+}
+
+#header-level-label {
+  padding: 8px 13px !important;
+  border-radius: 999px !important;
+  color: #6949de !important;
+  background: var(--cp-purple-soft) !important;
+}
+
+#btn-logout {
+  width: 42px;
+  padding: 0 !important;
+  font-size: 0 !important;
+}
+
+#btn-logout::before {
+  content: "↗";
+  font-size: 1.1rem;
+  transform: rotate(45deg);
+}
+
+.glass-card,
+#screen-leaderboard table,
+#duel-topbar,
+#t-topbar {
+  background: var(--cp-surface) !important;
+  color: var(--cp-text) !important;
+  border: 1px solid var(--cp-line) !important;
+  box-shadow: var(--cp-shadow) !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+}
+
+.glass-card {
+  border-radius: 26px !important;
+}
+
