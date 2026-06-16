@@ -281,6 +281,13 @@
       showScreen('screen-home');
     });
 
+    $('header-logo').addEventListener('click', () => {
+      if (currentUser && userProfile && userProfile.onboardingDone) {
+        playSound('tick');
+        showScreen('screen-home');
+      }
+    });
+
     // ============================================================
     //  AUTH FORMS
     // ============================================================
@@ -1674,7 +1681,7 @@
 
 <!-- ── HEADER ── -->
 <header>
-  <div class="logo">CodePilote</div>
+  <div class="logo" id="header-logo" style="cursor:pointer;" title="Retour au menu">CodePilote</div>
   <div class="subtitle">La route, en mode e-sport 🏁</div>
   <div class="header-actions">
     <span id="header-user" class="header-btn"></span>
