@@ -1,0 +1,2043 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🚗 CodePilote – Révise le Code de la Route</title>
+  <meta name="description" content="Quiz Code de la route gamifié — comptes, XP, badges, streaks et classement." />
+  
+  <!-- Polices modernes -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800;900&display=swap" rel="stylesheet" />
+  
+  <!-- Confetti -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <script type="module">
+    import { initializeApp }            from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword,
+             signInWithEmailAndPassword, signOut,
+             onAuthStateChanged }       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, getDocs,
+             collection, query, orderBy,
+             limit, onSnapshot, where, addDoc, deleteDoc, updateDoc, serverTimestamp }        from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // 🔑 CONFIG FIREBASE
+    const firebaseConfig = {
+      apiKey:            "AIzaSyB6NrVAg0ehOpCpMJxAd1PES_9G14oy-94",
+      authDomain:        "superpilot-73a32.firebaseapp.com",
+      projectId:         "superpilot-73a32",
+      storageBucket:     "superpilot-73a32.firebasestorage.app",
+      messagingSenderId: "553371049637",
+      appId:             "1:553371049637:web:39fa0302c0e0932c04374c"
+    };
+
+    const app  = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db   = getFirestore(app);
+
+    // ============================================================
+    //  SONS (Web Audio API)
+    // ============================================================
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    window.playSound = function(type) {
+      if(audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      
+      const now = audioCtx.currentTime;
+      if(type === 'correct') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, now);
+        osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        osc.start(now); osc.stop(now + 0.3);
+      } else if(type === 'wrong') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(100, now + 0.2);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        osc.start(now); osc.stop(now + 0.2);
+      } else if(type === 'tick') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(800, now);
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+        osc.start(now); osc.stop(now + 0.05);
+      } else if(type === 'win') {
+        const notes = [440, 554, 659, 880];
+        notes.forEach((freq, i) => {
+          const o = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          o.connect(g); g.connect(audioCtx.destination);
+          o.type = 'triangle';
+          o.frequency.value = freq;
+          g.gain.setValueAtTime(0, now + i*0.1);
+          g.gain.linearRampToValueAtTime(0.2, now + i*0.1 + 0.05);
+          g.gain.exponentialRampToValueAtTime(0.01, now + i*0.1 + 0.4);
+          o.start(now + i*0.1); o.stop(now + i*0.1 + 0.4);
+        });
+      }
+    };
+
+    // ============================================================
+    //  QUESTIONS
+    // ============================================================
+    import { QUESTIONS } from "./questions.js";
+    import { generateSeries } from "./randomizer.js";
+
+    // ============================================================
+    //  NIVEAUX (XP global, cumulatif)
+    // ============================================================
+    const LEVELS = [
+      { min:0,    label:"Apprenti",      emoji:"🚦" },
+      { min:100,  label:"Stagiaire",     emoji:"🛣️"  },
+      { min:300,  label:"Conducteur",    emoji:"🚗" },
+      { min:600,  label:"As du volant",  emoji:"🏎️"  },
+      { min:1100, label:"Expert Code",   emoji:"🏆" },
+      { min:2000, label:"Légende",       emoji:"⭐" },
+    ];
+
+    const BADGES = [
+      { id:"premier_pas", emoji:"🎓", label:"Premier Pas",   desc:"Terminer ta première partie" },
+      { id:"sans_faute",  emoji:"⚡", label:"Sans Faute !",  desc:"Terminer une partie sans aucune erreur" },
+      { id:"serie_feu",   emoji:"🔥", label:"Série de Feu",  desc:"Série de 5 bonnes réponses" },
+      { id:"regulier",    emoji:"📅", label:"Régulier",      desc:"Jouer 3 jours d'affilée" },
+      { id:"expert",      emoji:"🏆", label:"Expert Code",   desc:"Dépasser 15 points en une partie" },
+    ];
+
+    const LESSONS = [
+      { emoji:"🚦", title:"Les Priorités", points:[
+        "<strong>Priorité à droite</strong> : sur les routes sans panneau, le véhicule venant de ta droite passe en premier",
+        "<strong>Giratoire</strong> : les véhicules déjà DEDANS ont la priorité sur ceux qui entrent",
+        "<strong>STOP</strong> : arrêt obligatoire, même s'il n'y a personne",
+        "<strong>Route prioritaire</strong> : tu ne cèdes pas aux intersections"
+      ]},
+      { emoji:"🚀", title:"Les Vitesses Limites", points:[
+        "<strong>Agglomération</strong> : 50 km/h par défaut",
+        "<strong>Route nationale hors agglo</strong> : 80 km/h",
+        "<strong>Voie express (2×2 voies)</strong> : 110 km/h",
+        "<strong>Autoroute</strong> : 130 km/h — réduit à 110 km/h par temps de pluie"
+      ]}
+    ];
+
+    // ============================================================
+    //  STATE
+    // ============================================================
+    let currentUser  = null;
+    let userProfile  = null;
+    let unsubLB      = null;
+    let unsubLBTournament = null;
+    let currentLesson = 0;
+    let gameState = { currentIndex:0, score:0, streak:0, bestStreak:0, correctCount:0, wrongCount:0, answered:false, questions:[] };
+    let prevLevelIndex = 0;
+
+    const shuffle = arr => [...arr].sort(() => Math.random() - .5);
+    const $  = id => document.getElementById(id);
+
+    function getLevel(xp) {
+      let lv = LEVELS[0];
+      for (const l of LEVELS) if (xp >= l.min) lv = l;
+      return lv;
+    }
+    function getNextLevel(xp) {
+      for (const l of LEVELS) if (xp < l.min) return l;
+      return null;
+    }
+    function showScreen(name) {
+      ['screen-auth','screen-onboarding','screen-home','screen-game','screen-leaderboard','screen-lobby','screen-duel','screen-duel-results', 'screen-tournament', 'screen-social'].forEach(s => {
+        const el = $(s);
+        if (s === name) {
+          el.style.display = 'block';
+          el.style.animation = 'none'; void el.offsetWidth;
+          el.style.animation = 'screenEnter 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards';
+        } else {
+          el.style.display = 'none';
+        }
+      });
+    }
+
+    // Global Loader
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        $('global-loader').style.opacity = '0';
+        $('global-loader').style.visibility = 'hidden';
+      }, 1200);
+    });
+
+    // ============================================================
+    //  AUTH STATE
+    // ============================================================
+    onAuthStateChanged(auth, async user => {
+      if (user) {
+        currentUser = user;
+        await loadProfile();
+        updateHeader();
+        if (!userProfile?.onboardingDone) {
+          currentLesson = 0;
+          renderLesson(0);
+          showScreen('screen-onboarding');
+        } else {
+          showScreen('screen-home');
+        }
+      } else {
+        currentUser = null;
+        userProfile = null;
+        updateHeader();
+        showScreen('screen-auth');
+      }
+    });
+
+    async function loadProfile() {
+      const snap = await getDoc(doc(db, 'users', currentUser.uid));
+      userProfile = snap.exists() ? snap.data() : null;
+      if (userProfile && userProfile.coins === undefined) {
+        // Retrocompatibilité : on donne 100 CodeCoins aux anciens joueurs
+        await updateDoc(doc(db, 'users', currentUser.uid), { coins: 100 });
+        userProfile.coins = 100;
+      }
+    }
+
+    function updateHeader() {
+      if (currentUser && userProfile) {
+        $('header-user').textContent = `👤 ${userProfile.pseudo}`;
+        $('header-user').style.display    = 'inline-flex';
+        $('btn-logout').style.display     = 'inline-flex';
+        $('header-xp-wrap').style.display = 'flex';
+
+        const xp   = userProfile.xp || 0;
+        const lv   = getLevel(xp);
+        const next = getNextLevel(xp);
+        $('header-level-label').textContent = lv.emoji + ' ' + lv.label;
+        if (next) {
+          const pct = Math.min(100, ((xp - lv.min) / (next.min - lv.min)) * 100);
+          $('header-xp-fill').style.width  = pct + '%';
+          $('header-xp-txt').textContent   = `${xp} / ${next.min} XP`;
+        } else {
+          $('header-xp-fill').style.width  = '100%';
+          $('header-xp-txt').textContent   = `${xp} XP — MAX`;
+        }
+        const ds = userProfile.dailyStreak || 0;
+        $('header-daily').textContent = ds >= 2 ? `🔥 ${ds} jours` : '';
+        $('header-daily').style.display = ds >= 2 ? 'block' : 'none';
+        $('header-trophies').textContent = `🏆 ${userProfile.trophies || 0}`;
+        $('header-coins').textContent = `🪙 ${userProfile.coins || 0}`;
+      } else {
+        $('header-user').style.display    = 'none';
+        $('btn-logout').style.display     = 'none';
+        $('header-xp-wrap').style.display = 'none';
+        $('header-daily').style.display   = 'none';
+        $('header-trophies').textContent  = '';
+        $('header-coins').textContent     = '';
+      }
+    }
+
+    // ============================================================
+    //  HOME ACTIONS
+    // ============================================================
+    $('btn-home-solo').addEventListener('click', () => {
+      gameState.questions = generateSeries([...QUESTIONS], 15);
+      showScreen('screen-game');
+      startGame();
+    });
+
+    $('btn-home-duel').addEventListener('click', () => {
+      playSound('tick');
+      showScreen('screen-lobby');
+      if (!socket) socket = io();
+      socket.emit('join_queue', userProfile);
+    });
+
+    $('btn-home-tournament').addEventListener('click', () => {
+      playSound('tick');
+      showScreen('screen-tournament');
+      startTournament();
+    });
+
+    $('btn-home-social').addEventListener('click', () => {
+      playSound('tick');
+      showScreen('screen-social');
+      loadSocialData();
+    });
+
+    $('btn-home-ecurie').addEventListener('click', () => {
+      playSound('tick');
+      showScreen('screen-ecurie');
+      loadEcurieData();
+    });
+
+    $('btn-back-home-ecurie').addEventListener('click', () => {
+      playSound('tick');
+      if (unsubEcurie) { unsubEcurie(); unsubEcurie = null; }
+      if (unsubEcurieMembers) { unsubEcurieMembers(); unsubEcurieMembers = null; }
+      showScreen('screen-home');
+    });
+
+    // ============================================================
+    //  AUTH FORMS
+    // ============================================================
+    $('form-signup').addEventListener('submit', async e => {
+      e.preventDefault();
+      const pseudo = $('su-pseudo').value.trim();
+      const email  = $('su-email').value.trim();
+      const pwd    = $('su-pwd').value;
+      const pwd2   = $('su-pwd2').value;
+      clearAuthError();
+      if (pseudo.length < 2)   return showAuthError("Le pseudo doit faire au moins 2 caractères.");
+      if (pwd !== pwd2)        return showAuthError("Les mots de passe ne correspondent pas.");
+      if (pwd.length < 6)      return showAuthError("Mot de passe trop court (6 caractères min).");
+      setAuthLoading(true);
+      try {
+        // Vérification de l'unicité du pseudo
+        const pseudoLower = pseudo.toLowerCase();
+        const pseudoDoc = await getDoc(doc(db, 'pseudos', pseudoLower));
+        if (pseudoDoc.exists()) {
+          setAuthLoading(false);
+          return showAuthError("Ce pseudo est déjà pris. Choisis-en un autre !");
+        }
+
+        const cred = await createUserWithEmailAndPassword(auth, email, pwd);
+        await setDoc(doc(db, 'users', cred.user.uid), {
+          pseudo, email,
+          bestScore:0, totalGames:0, bestStreak:0,
+          xp:0, dailyStreak:0, lastPlayedDate:'',
+          badges:[], onboardingDone:false, trophies: 0, coins: 100, lastPlayed: new Date()
+        });
+
+        // Réservation du pseudo
+        await setDoc(doc(db, 'pseudos', pseudoLower), { uid: cred.user.uid });
+
+      } catch(err) { setAuthLoading(false); showAuthError(err.message); }
+    });
+
+    $('form-signin').addEventListener('submit', async e => {
+      e.preventDefault();
+      clearAuthError(); setAuthLoading(true);
+      try { await signInWithEmailAndPassword(auth, $('si-email').value.trim(), $('si-pwd').value); }
+      catch(err) { setAuthLoading(false); showAuthError("Erreur de connexion."); }
+    });
+
+    $('btn-logout').addEventListener('click', async () => {
+      if (unsubLB) { unsubLB(); unsubLB = null; }
+      if (unsubLBTournament) { unsubLBTournament(); unsubLBTournament = null; }
+      await signOut(auth);
+    });
+    $('toggle-to-signup').addEventListener('click', () => {
+      clearAuthError();
+      $('form-signin').style.display = 'none'; $('form-signup').style.display = 'flex';
+      $('auth-tab-signin').classList.remove('active'); $('auth-tab-signup').classList.add('active');
+    });
+    $('toggle-to-signin').addEventListener('click', () => {
+      clearAuthError();
+      $('form-signup').style.display = 'none'; $('form-signin').style.display = 'flex';
+      $('auth-tab-signup').classList.remove('active'); $('auth-tab-signin').classList.add('active');
+    });
+    $('auth-tab-signin').addEventListener('click', () => $('toggle-to-signin').click());
+    $('auth-tab-signup').addEventListener('click', () => $('toggle-to-signup').click());
+
+    function showAuthError(m) { $('auth-error').textContent = m; $('auth-error').style.display = 'block'; }
+    function clearAuthError()  { $('auth-error').textContent = ''; $('auth-error').style.display = 'none'; }
+    function setAuthLoading(v) { $('btn-signin').disabled = $('btn-signup').disabled = v; }
+
+    // ============================================================
+    //  ONBOARDING
+    // ============================================================
+    function renderLesson(idx) {
+      const l = LESSONS[idx];
+      $('lesson-emoji').textContent = l.emoji;
+      $('lesson-title').textContent = l.title;
+      $('lesson-points').innerHTML  = l.points.map(p => `<li>${p}</li>`).join('');
+      $('lesson-counter').textContent = `${idx+1} / ${LESSONS.length}`;
+      $('lesson-dots').innerHTML = LESSONS.map((_,i) =>
+        `<div class="l-dot ${i===idx?'active':i<idx?'done':''}"></div>`).join('');
+      $('lesson-next-btn').textContent = idx === LESSONS.length-1 ? '🚀 Commencer l\'aventure !' : 'Leçon suivante →';
+      const card = $('lesson-card');
+      card.style.animation = 'none'; void card.offsetWidth;
+      card.style.animation = 'cardIn .5s cubic-bezier(.34,1.56,.64,1)';
+    }
+
+    $('lesson-next-btn').addEventListener('click', async () => {
+      playSound('tick');
+      if (currentLesson < LESSONS.length - 1) {
+        currentLesson++;
+        renderLesson(currentLesson);
+      } else {
+        if (currentUser) await setDoc(doc(db,'users',currentUser.uid), {onboardingDone:true}, {merge:true});
+        if (userProfile) userProfile.onboardingDone = true;
+        showScreen('screen-home');
+      }
+    });
+
+    // ============================================================
+    //  LEADERBOARD
+    // ============================================================
+    $('btn-leaderboard').addEventListener('click', () => { 
+      showScreen('screen-leaderboard'); 
+      subscribeLeaderboard(); 
+      switchLBTab('general');
+    });
+    $('btn-back-home-lb').addEventListener('click', () => { 
+      if(unsubLB) unsubLB(); 
+      if(unsubLBTournament) unsubLBTournament(); 
+      showScreen('screen-home'); 
+    });
+
+    $('tab-lb-general').addEventListener('click', () => switchLBTab('general'));
+    $('tab-lb-tournament').addEventListener('click', () => switchLBTab('tournament'));
+
+    function switchLBTab(tab) {
+      $('tab-lb-general').classList.remove('active');
+      $('tab-lb-tournament').classList.remove('active');
+      $('tab-lb-' + tab).classList.add('active');
+
+      if (tab === 'general') {
+        $('lb-table-general').style.display = 'table';
+        $('lb-table-tournament').style.display = 'none';
+        subscribeLeaderboard();
+      } else {
+        $('lb-table-general').style.display = 'none';
+        $('lb-table-tournament').style.display = 'table';
+        subscribeLeaderboardTournament();
+      }
+    }
+
+    function subscribeLeaderboard() {
+      if (unsubLB) return;
+      unsubLB = onSnapshot(query(collection(db,'users'), orderBy('trophies','desc'), orderBy('bestScore','desc'), limit(15)), snap => {
+        const tbody = $('lb-body');
+        tbody.innerHTML = '';
+        const medals = ['🥇','🥈','🥉'];
+        snap.docs.forEach((d, i) => {
+          const data = d.data();
+          const isMe = currentUser && d.id === currentUser.uid;
+          const lv   = getLevel(data.xp || 0);
+          const tr   = document.createElement('tr');
+          if (isMe) tr.classList.add('lb-me');
+          tr.innerHTML = `
+            <td class="lb-rank">${medals[i]||'#'+(i+1)}</td>
+            <td class="lb-pseudo">${esc(data.pseudo)}${isMe?' <span class="lb-you">Toi</span>':''}<br><small style="color:var(--muted)">${lv.emoji} ${lv.label}</small></td>
+            <td class="lb-score">🏆 ${data.trophies??0}</td>
+            <td style="color:var(--muted);font-size:.85rem">${data.bestScore??0} pts</td>`;
+          tbody.appendChild(tr);
+        });
+        if (!snap.docs.length) tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">Aucun score encore.</td></tr>';
+      });
+    }
+
+    function subscribeLeaderboardTournament() {
+      if (unsubLBTournament) return;
+      const today = new Date().toISOString().split('T')[0];
+      unsubLBTournament = onSnapshot(query(collection(db,'users'), 
+        orderBy('tournamentDailyScore','desc'), limit(15)), snap => {
+        const tbody = $('lb-body-tournament');
+        tbody.innerHTML = '';
+        const medals = ['🥇','🥈','🥉'];
+        snap.docs.forEach((d, i) => {
+          const data = d.data();
+          if (data.tournamentDate !== today) return; // Sécurité si le where échoue
+          const isMe = currentUser && d.id === currentUser.uid;
+          const tr   = document.createElement('tr');
+          if (isMe) tr.classList.add('lb-me');
+          tr.innerHTML = `
+            <td class="lb-rank">${medals[i]||'#'+(i+1)}</td>
+            <td class="lb-pseudo">${esc(data.pseudo)}${isMe?' <span class="lb-you">Toi</span>':''}</td>
+            <td class="lb-score" style="color:var(--green)">${data.tournamentDailyScore % 1000} / 10</td>
+            <td style="color:var(--muted);font-size:.85rem">⏳ ${data.tournamentTimeRemaining}s</td>`;
+          tbody.appendChild(tr);
+        });
+        if (!tbody.innerHTML) tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">Aucun participant aujourd\'hui. Sois le premier !</td></tr>';
+      }, err => {
+        console.error(err);
+        $('lb-body-tournament').innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--red);padding:24px">Erreur de chargement du classement.</td></tr>';
+      });
+    }
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    // ============================================================
+    //  SAVE SCORE (XP + streak + badges)
+    // ============================================================
+    async function saveScore(score, correctCount, bestStreakGame) {
+      if (!currentUser) return null;
+      if (score > 0) addEcuriePoints(score);
+
+      const ref  = doc(db, 'users', currentUser.uid);
+      const snap = await getDoc(ref);
+      const prev = snap.exists() ? snap.data() : {};
+
+      let xpGained = score * 10;
+      if (correctCount === QUESTIONS.length) xpGained += 50;
+      if (bestStreakGame >= 5) xpGained += 20;
+      const newXP = (prev.xp || 0) + xpGained;
+      const newCoins = (prev.coins || 0) + correctCount;
+
+      const today     = new Date().toISOString().split('T')[0];
+      const yesterday = new Date(Date.now()-86400000).toISOString().split('T')[0];
+      const lastDate  = prev.lastPlayedDate || '';
+      let dailyStreak = prev.dailyStreak || 0;
+      if      (lastDate === today)     { /* same day */ }
+      else if (lastDate === yesterday) { dailyStreak++; }
+      else                             { dailyStreak = 1; }
+
+      const prevBadges = prev.badges || [];
+      const newBadges  = [...prevBadges];
+      const earn = id => { if (!newBadges.includes(id)) newBadges.push(id); };
+      if (!prev.totalGames || prev.totalGames === 0) earn('premier_pas');
+      if (correctCount === QUESTIONS.length)          earn('sans_faute');
+      if (bestStreakGame >= 5)                        earn('serie_feu');
+      if (dailyStreak >= 3)                           earn('regulier');
+      if (score > 15)                                 earn('expert');
+      const earnedNew = newBadges.filter(b => !prevBadges.includes(b));
+
+      await setDoc(ref, {
+        pseudo:         prev.pseudo ?? 'Anonyme',
+        email:          currentUser.email,
+        bestScore:      Math.max(score, prev.bestScore || 0),
+        bestStreak:     Math.max(bestStreakGame, prev.bestStreak || 0),
+        totalGames:     (prev.totalGames || 0) + 1,
+        xp:             newXP,
+        coins:          newCoins,
+        dailyStreak,
+        lastPlayedDate: today,
+        badges:         newBadges,
+        onboardingDone: true,
+        lastPlayed:     new Date()
+      }, { merge:true });
+
+      await loadProfile();
+      updateHeader();
+      
+      return { xpGained, earnedNew, dailyStreak };
+    }
+
+    async function addEcuriePoints(points) {
+      if (!userProfile || !userProfile.ecurieId || points <= 0) return;
+      try {
+        const eId = userProfile.ecurieId;
+        const eRef = doc(db, 'ecuries', eId);
+        const mRef = doc(db, `ecuries/${eId}/members`, currentUser.uid);
+        
+        // On récupère d'abord les anciennes valeurs
+        const [eSnap, mSnap] = await Promise.all([getDoc(eRef), getDoc(mRef)]);
+        
+        if (eSnap.exists() && mSnap.exists()) {
+          const eData = eSnap.data();
+          const mData = mSnap.data();
+          
+          await updateDoc(eRef, { weeklyPoints: (eData.weeklyPoints || 0) + points });
+          await updateDoc(mRef, { weeklyContribution: (mData.weeklyContribution || 0) + points });
+        }
+      } catch (e) {
+        console.error("Erreur ajout points écurie:", e);
+      }
+    }
+
+    // ============================================================
+    //  SOLO GAME ENGINE
+    // ============================================================
+    $('btn-back-home-game').addEventListener('click', () => showScreen('screen-home'));
+    
+    function startGame() {
+      gameState.currentIndex = 0;
+      gameState.score = 0;
+      gameState.streak = 0;
+      gameState.bestStreak = 0;
+      gameState.correctCount = 0;
+      gameState.wrongCount = 0;
+      gameState.answered = false;
+      prevLevelIndex = LEVELS.indexOf(getLevel(userProfile?.xp || 0));
+      $('results-screen').style.display = 'none';
+      $('question-card').style.display  = 'block';
+      showQuestion();
+    }
+
+    function showQuestion() {
+      gameState.answered = false;
+      const q    = gameState.questions[gameState.currentIndex];
+      const card = $('question-card');
+      card.style.animation = 'none'; void card.offsetWidth;
+      card.style.animation = 'cardIn .5s cubic-bezier(.34,1.56,.64,1)';
+      
+      if (q.Image) {
+        $('question-img').src = q.Image.src;
+        $('question-img').alt = q.Image.alt || "Image de situation de conduite";
+        $('question-img').style.display = 'block';
+        $('btn-credits').style.display = 'block';
+        $('btn-credits').onclick = () => {
+          const p = $('credits-popup');
+          p.style.display = p.style.display === 'block' ? 'none' : 'block';
+          p.innerHTML = `<strong>Auteur:</strong> ${q.Image.auteur}<br><strong>Licence:</strong> ${q.Image.licence}`;
+        };
+      } else {
+        $('question-img').style.display = 'none';
+        $('btn-credits').style.display = 'none';
+        $('credits-popup').style.display = 'none';
+      }
+
+      $('question-text').textContent = q.q;
+      $('feedback').style.display    = 'none';
+      $('next-btn').style.display    = 'none';
+      const div = $('answers'); div.innerHTML = '';
+      shuffle(q.choices.map((text,idx) => ({text,idx}))).forEach(({text,idx}) => {
+        const btn = document.createElement('button');
+        btn.className = 'answer-btn'; btn.textContent = text; btn.dataset.index = idx;
+        btn.addEventListener('click', () => handleAnswer(btn, q, idx));
+        div.appendChild(btn);
+      });
+      updateGameUI();
+    }
+
+    function handleAnswer(btn, q, idx) {
+      if (gameState.answered) return;
+      gameState.answered = true;
+      const ok = idx === q.correct;
+      
+      document.querySelectorAll('.answer-btn').forEach(b => {
+        b.disabled = true;
+        if (parseInt(b.dataset.index) === q.correct) b.classList.add('correct');
+      });
+      if (!ok) btn.classList.add('wrong');
+
+      if (ok) {
+        playSound('correct');
+        const bonus = Math.floor(gameState.streak / 3);
+        const pts   = 1 + bonus;
+        gameState.score += pts; gameState.streak++;
+        gameState.bestStreak = Math.max(gameState.bestStreak, gameState.streak);
+        gameState.correctCount++;
+        showPopup(`+${pts}`, 'var(--green)');
+        if (gameState.streak % 3 === 0) showToast(`🔥 Série x${gameState.streak} !`, 'var(--accent2)');
+      } else {
+        playSound('wrong');
+        gameState.score = Math.max(0, gameState.score - 1);
+        gameState.streak = 0; gameState.wrongCount++;
+        showPopup('-1', 'var(--red)');
+      }
+
+      const fb = $('feedback');
+      fb.className = ok ? 'correct' : 'wrong';
+      fb.innerHTML = `
+        <div style="margin-bottom: 10px;">${ok ? '<span class="icon">✅</span> <b>Bonne réponse !</b>' : '<span class="icon">❌</span> <b>Mauvaise réponse.</b>'}</div>
+        <div style="background:var(--surface); padding:12px; border-radius:8px; margin-bottom:10px;">
+          <strong style="color:var(--accent);">Explication :</strong> ${q.explication}
+        </div>
+        ${q.analyse_risque ? `<div style="margin-bottom:10px;"><strong style="color:var(--red);">⚠️ Danger principal :</strong> ${q.analyse_risque}</div>` : ''}
+        ${q.source_juridique ? `<div style="font-size:0.85rem; color:var(--muted);"><strong style="color:var(--green);">📖 Référence Légifrance :</strong> ${q.source_juridique}</div>` : ''}
+      `;
+      fb.style.display = 'block';
+      updateGameUI();
+      $('next-btn').style.display = 'block';
+    }
+
+    function updateGameUI() {
+      $('score-val').textContent    = gameState.score;
+      $('streak-val').textContent   = gameState.streak;
+      $('progress-fill').style.width = ((gameState.currentIndex / gameState.questions.length) * 100) + '%';
+      $('question-number').textContent = `Question ${gameState.currentIndex+1} / ${gameState.questions.length}`;
+    }
+
+    $('next-btn').addEventListener('click', () => {
+      playSound('tick');
+      gameState.currentIndex++;
+      if (gameState.currentIndex >= gameState.questions.length) showResults();
+      else showQuestion();
+    });
+
+    async function showResults() {
+      $('question-card').style.display  = 'none';
+      $('results-screen').style.display = 'block';
+      $('progress-fill').style.width    = '100%';
+      $('badges-section').innerHTML     = '';
+      $('xp-gained-wrap').style.display = 'none';
+      const pct = gameState.correctCount / gameState.questions.length;
+      let trophy = '🥉', title = 'Bien essayé !';
+      if      (pct >= .9) { trophy = '🏆'; title = 'Excellent !'; playSound('win'); confetti({particleCount: 150, spread: 80}); }
+      else if (pct >= .7) { trophy = '🥇'; title = 'Très bien !'; playSound('win'); confetti({particleCount: 80, spread: 60}); }
+      
+      $('question-card').style.display = 'none';
+      $('results-screen').style.display = 'block';
+      $('final-score').textContent = gameState.score;
+      $('r-correct').textContent = gameState.score;
+      $('r-wrong').textContent = gameState.questions.length - gameState.score;
+      $('save-status').textContent = '';
+
+      if (activeChallengeId) {
+        finishChallenge();
+        return;
+      }
+
+      $('progress-fill').style.width    = '100%';
+      $('badges-section').innerHTML     = '';
+      $('xp-gained-wrap').style.display = 'none';
+
+      $('trophy-icon').textContent  = trophy;
+      $('result-title').textContent = title;
+      $('final-score').textContent  = gameState.score;
+      $('r-correct').textContent    = gameState.correctCount;
+      $('r-wrong').textContent      = gameState.wrongCount;
+      $('r-streak').textContent     = gameState.bestStreak;
+
+      $('save-status').textContent   = '⏳ Sauvegarde…';
+      $('save-status').style.display = 'block';
+
+      const result = await saveScore(gameState.score, gameState.correctCount, gameState.bestStreak);
+      if (result) {
+        $('save-status').textContent = '✅ Sauvegardé !';
+        setTimeout(() => $('save-status').style.display = 'none', 2500);
+
+        $('xp-gained-val').textContent = `+${result.xpGained} XP`;
+        $('xp-gained-wrap').style.display = 'flex';
+
+        if (result.dailyStreak >= 2) showToast(`📅 ${result.dailyStreak} jours d'affilée !`, 'var(--yellow)');
+        if (result.earnedNew.length) renderNewBadges(result.earnedNew);
+
+        const newXP  = userProfile?.xp || 0;
+        const newLvIdx = LEVELS.indexOf(getLevel(newXP));
+        if (newLvIdx > prevLevelIndex) {
+          prevLevelIndex = newLvIdx;
+          const lv = LEVELS[newLvIdx];
+          $('lv-emoji').textContent = lv.emoji;
+          $('lv-text').textContent  = '🎉 Niveau : ' + lv.label;
+          const badge = $('level-badge');
+          badge.className = ''; void badge.offsetWidth; badge.className = 'show';
+          playSound('win');
+          confetti({particleCount: 200, spread: 120, origin: {y: 0.6}});
+          setTimeout(() => badge.className = '', 2600);
+        }
+      }
+    }
+
+    function renderNewBadges(ids) {
+      const section = $('badges-section');
+      section.innerHTML = '<div class="badges-title">🎖️ Nouveaux badges !</div>';
+      ids.forEach(id => {
+        const def = BADGES.find(b => b.id === id);
+        if (!def) return;
+        const el = document.createElement('div');
+        el.className = 'badge-item';
+        el.innerHTML = `<span class="badge-emoji">${def.emoji}</span><div><div class="badge-name">${def.label}</div><div class="badge-desc">${def.desc}</div></div>`;
+        section.appendChild(el);
+      });
+    }
+
+    function showPopup(text, color) {
+      const el = document.createElement('div');
+      el.className = 'score-popup'; el.textContent = text; el.style.color = color;
+      el.style.left = 'calc(50% - 30px)'; el.style.top = 'calc(50% - 60px)';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 1000);
+    }
+
+    function showToast(text, color = 'var(--accent2)') {
+      const el = document.createElement('div');
+      el.className = 'game-toast'; el.textContent = text;
+      el.style.setProperty('--tc', color);
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+
+    $('restart-btn').addEventListener('click', () => { playSound('tick'); startGame(); });
+    $('btn-back-home-res').addEventListener('click', () => { showScreen('screen-home'); });
+
+    // ============================================================
+    //  SOCKET.IO - MODE DUEL
+    // ============================================================
+    let socket = null;
+    let duelOpponent = null;
+
+    $('btn-cancel-duel').addEventListener('click', () => {
+      playSound('tick');
+      if (socket) socket.emit('leave_queue');
+      showScreen('screen-home');
+    });
+
+    $('btn-duel-back').addEventListener('click', () => {
+      playSound('tick');
+      showScreen('screen-home');
+    });
+
+    const io_init = () => {
+      if (!socket) socket = io();
+
+      socket.on('match_found', (data) => {
+        playSound('win');
+        duelOpponent = (data.p1.id === socket.id) ? data.p2 : data.p1;
+        $('dp1-score').textContent = "0";
+        $('dp2-score').textContent = "0";
+        $('dp2-name').textContent = duelOpponent.pseudo;
+        showScreen('screen-duel');
+        showToast('Adversaire trouvé ! Prépare-toi...', 'var(--green)');
+      });
+
+      socket.on('new_question', (data) => {
+        $('duel-q-index').textContent = data.isSuddenDeath ? "☠️ Mort Subite !" : `Question ${data.qIndex + 1} / 5`;
+        $('duel-q-index').className = data.isSuddenDeath ? 'duel-anim-sd' : '';
+        $('duel-q-text').textContent = data.q;
+        $('duel-feedback').style.display = 'none';
+
+        const div = $('duel-answers'); div.innerHTML = '';
+        data.choices.forEach((c) => {
+          const btn = document.createElement('button');
+          btn.className = 'answer-btn'; btn.textContent = c.text; btn.dataset.index = c.originalIdx;
+          btn.addEventListener('click', () => {
+            playSound('tick');
+            btn.style.opacity = '0.5';
+            socket.emit('submit_answer', c.originalIdx);
+          });
+          div.appendChild(btn);
+        });
+
+        $('duel-timer-fill').style.transition = 'none';
+        $('duel-timer-fill').style.width = '100%';
+        setTimeout(() => {
+          $('duel-timer-fill').style.transition = 'width 30s linear';
+          $('duel-timer-fill').style.width = '0%';
+        }, 50);
+      });
+
+      socket.on('player_scored', (data) => {
+        $('duel-timer-fill').style.width = $('duel-timer-fill').style.width; // freeze timer
+        $('duel-timer-fill').style.transition = 'none';
+        
+        const isMe = data.scorerId === socket.id;
+        if (isMe) playSound('correct'); else playSound('wrong');
+
+        $('duel-feedback').style.display = 'block';
+        $('duel-feedback').className = isMe ? 'correct' : 'wrong';
+        $('duel-feedback').innerHTML = isMe ? `<span class="icon">✅</span>Bien joué ! +1 point` : `<span class="icon">❌</span>Trop lent ! L'adversaire a trouvé.`;
+        
+        document.querySelectorAll('#duel-answers .answer-btn').forEach(b => {
+          b.disabled = true;
+          if (parseInt(b.dataset.index) === data.correct) b.classList.add('correct');
+        });
+
+        const myScore = data.scores[socket.id];
+        const opScore = data.scores[Object.keys(data.scores).find(id => id !== socket.id)];
+        $('dp1-score').textContent = myScore;
+        $('dp2-score').textContent = opScore;
+      });
+
+      socket.on('answer_wrong', () => {
+        playSound('wrong');
+        showToast('❌ Faux !', 'var(--red)');
+      });
+      
+      socket.on('opponent_wrong', () => {
+        playSound('tick');
+        showToast('👀 Ton adversaire s\'est trompé, prends ton temps !', 'var(--yellow)');
+      });
+
+      socket.on('both_wrong', (data) => {
+        playSound('wrong');
+        $('duel-timer-fill').style.transition = 'none';
+        $('duel-feedback').style.display = 'block';
+        $('duel-feedback').className = 'wrong';
+        $('duel-feedback').innerHTML = `<span class="icon">❌</span>Vous avez tous les deux eu faux !`;
+        document.querySelectorAll('#duel-answers .answer-btn').forEach(b => {
+          b.disabled = true;
+          if (parseInt(b.dataset.index) === data.correct) b.classList.add('correct');
+        });
+      });
+
+      socket.on('question_timeout', (data) => {
+        playSound('wrong');
+        $('duel-feedback').style.display = 'block';
+        $('duel-feedback').className = 'wrong';
+        $('duel-feedback').innerHTML = `⏱️ Temps écoulé !`;
+        document.querySelectorAll('#duel-answers .answer-btn').forEach(b => {
+          b.disabled = true;
+          if (parseInt(b.dataset.index) === data.correct) b.classList.add('correct');
+        });
+      });
+
+      socket.on('match_end', async (data) => {
+        const isDraw = data.isDraw;
+        const isWinner = data.winnerId === socket.id;
+        
+        if (isWinner) { playSound('win'); confetti({particleCount: 200, spread: 100}); }
+        else playSound('wrong');
+
+        $('dr-icon').textContent = isWinner ? '🏆' : (isDraw ? '🤝' : '💔');
+        $('dr-title').textContent = isWinner ? 'Victoire !' : (isDraw ? 'Égalité !' : 'Défaite...');
+        $('dr-desc').textContent = isDraw ? `Tu as fait match nul avec ${duelOpponent.pseudo}` : 
+                                  (isWinner ? `Tu as battu ${duelOpponent.pseudo}` : `${duelOpponent.pseudo} t'a battu`);
+        
+        let trophiesChange = 0;
+        if (isWinner) trophiesChange = 10;
+        else if (!isDraw) trophiesChange = Math.max(-5, -(userProfile?.trophies || 0));
+
+        if (trophiesChange > 0) $('dr-trophies').textContent = `+${trophiesChange} 🏆`;
+        else if (trophiesChange < 0) $('dr-trophies').textContent = `${trophiesChange} 🏆`;
+        else $('dr-trophies').textContent = `+0 🏆`;
+        $('dr-trophies').style.color = isWinner ? 'var(--yellow)' : (isDraw ? 'var(--muted)' : 'var(--red)');
+
+        showScreen('screen-duel-results');
+        
+        const myScore = data.scores[socket.id] || 0;
+        if (myScore > 0) addEcuriePoints(myScore);
+
+        if (currentUser && (trophiesChange !== 0 || myScore > 0)) {
+          const newTrophies = (userProfile.trophies || 0) + trophiesChange;
+          const newCoins = (userProfile.coins || 0) + myScore;
+          await setDoc(doc(db, 'users', currentUser.uid), { trophies: newTrophies, coins: newCoins }, { merge: true });
+          userProfile.trophies = newTrophies;
+          userProfile.coins = newCoins;
+          updateHeader();
+        }
+      });
+
+      socket.on('opponent_left', async () => {
+        playSound('win'); confetti();
+        showToast('L\'adversaire a fui... Victoire par forfait !', 'var(--green)');
+        $('dr-icon').textContent = '🏃';
+        $('dr-title').textContent = 'Victoire par forfait';
+        $('dr-desc').textContent = `${duelOpponent.pseudo} s'est déconnecté.`;
+        $('dr-trophies').textContent = '+5 🏆';
+        $('dr-trophies').style.color = 'var(--yellow)';
+        showScreen('screen-duel-results');
+
+        if (currentUser) {
+          const newTrophies = (userProfile.trophies || 0) + 5;
+          await setDoc(doc(db, 'users', currentUser.uid), { trophies: newTrophies }, { merge: true });
+          userProfile.trophies = newTrophies;
+          updateHeader();
+        }
+      });
+    };
+    
+    onAuthStateChanged(auth, user => {
+      if (user) io_init();
+    });
+
+    // ============================================================
+    //  TOURNAI DU JOUR
+    // ============================================================
+    let tournoiState = { currentIndex:0, score:0, timeRemaining: 60, interval:null, questions:[] };
+
+    $('btn-back-home-tournoi').addEventListener('click', () => {
+      clearInterval(tournoiState.interval);
+      showScreen('screen-home');
+    });
+
+    function startTournament() {
+      // Setup tournament state
+      tournoiState.questions = generateSeries([...QUESTIONS], 10);
+      tournoiState.currentIndex = 0;
+      tournoiState.score = 0;
+      tournoiState.timeRemaining = 60; // 60 seconds
+      
+      $('t-score').textContent = "0";
+      $('t-timer').textContent = "60s";
+      $('t-timer').style.color = "var(--text)";
+      $('t-results').style.display = 'none';
+      $('t-question-card').style.display = 'block';
+
+      showTournamentQuestion();
+
+      clearInterval(tournoiState.interval);
+      tournoiState.interval = setInterval(() => {
+        tournoiState.timeRemaining--;
+        $('t-timer').textContent = `${tournoiState.timeRemaining}s`;
+        if (tournoiState.timeRemaining <= 10) $('t-timer').style.color = "var(--red)";
+        
+        if (tournoiState.timeRemaining <= 0) {
+          endTournament();
+        }
+      }, 1000);
+    }
+
+    function showTournamentQuestion() {
+      const q = tournoiState.questions[tournoiState.currentIndex];
+      $('t-question-number').textContent = `Question ${tournoiState.currentIndex+1} / 10`;
+      
+      if (q.Image) {
+        $('t-question-img').src = q.Image.src;
+        $('t-question-img').alt = q.Image.alt || "Image de situation";
+        $('t-question-img').style.display = 'block';
+        $('t-btn-credits').style.display = 'block';
+        $('t-btn-credits').onclick = () => {
+          const p = $('t-credits-popup');
+          p.style.display = p.style.display === 'block' ? 'none' : 'block';
+          p.innerHTML = `<strong>Auteur:</strong> ${q.Image.auteur}<br><strong>Licence:</strong> ${q.Image.licence}`;
+        };
+      } else {
+        $('t-question-img').style.display = 'none';
+        $('t-btn-credits').style.display = 'none';
+        $('t-credits-popup').style.display = 'none';
+      }
+
+      $('t-question-text').textContent = q.q;
+      
+      const div = $('t-answers'); div.innerHTML = '';
+      shuffle(q.choices.map((text,idx) => ({text,idx}))).forEach(({text,idx}) => {
+        const btn = document.createElement('button');
+        btn.className = 'answer-btn'; btn.textContent = text; 
+        btn.addEventListener('click', () => {
+          if (idx === q.correct) {
+            playSound('correct');
+            tournoiState.score++;
+            $('t-score').textContent = tournoiState.score;
+            btn.classList.add('correct');
+          } else {
+            playSound('wrong');
+            btn.classList.add('wrong');
+          }
+          
+          document.querySelectorAll('#t-answers .answer-btn').forEach(b => b.disabled = true);
+          
+          setTimeout(() => {
+            tournoiState.currentIndex++;
+            if (tournoiState.currentIndex >= tournoiState.questions.length) {
+              endTournament();
+            } else {
+              showTournamentQuestion();
+            }
+          }, 600);
+        });
+        div.appendChild(btn);
+      });
+    }
+
+    async function endTournament() {
+      clearInterval(tournoiState.interval);
+      playSound('win');
+      if (tournoiState.score >= 8) confetti({particleCount: 150, spread: 80});
+
+      $('t-question-card').style.display = 'none';
+      $('t-results').style.display = 'block';
+      $('t-final-score').textContent = `${tournoiState.score} / 10`;
+      
+      const today = new Date().toISOString().split('T')[0];
+      const dateNum = parseInt(today.replace(/-/g, ''));
+      const scoreKey = (dateNum * 1000) + tournoiState.score;
+      
+      $('t-save-status').textContent = 'Sauvegarde...';
+      try {
+        const newCoins = (userProfile.coins || 0) + tournoiState.score;
+        await setDoc(doc(db, 'users', currentUser.uid), {
+          tournamentDailyScore: scoreKey,
+          tournamentTimeRemaining: Math.max(0, tournoiState.timeRemaining),
+          tournamentDate: today,
+          pseudo: userProfile.pseudo,
+          coins: newCoins
+        }, { merge: true });
+        userProfile.coins = newCoins;
+        updateHeader();
+        
+        $('t-save-status').textContent = '✅ Ton score est enregistré pour aujourd\'hui !';
+        $('btn-t-lb').style.display = 'inline-block';
+      } catch (e) {
+        console.error("Erreur Firebase:", e);
+        $('t-save-status').textContent = '❌ Erreur de sauvegarde: ' + e.message;
+      }
+    }
+
+    $('btn-t-lb').addEventListener('click', () => {
+      showScreen('screen-leaderboard');
+      switchLBTab('tournament');
+    });
+
+    // ============================================================
+    //  SOCIAL LOGIC
+    // ============================================================
+    let unsubFriends = null;
+    let unsubRequests = null;
+
+    $('btn-back-home-social').addEventListener('click', () => {
+      showScreen('screen-home');
+      if (unsubFriends) { unsubFriends(); unsubFriends = null; }
+      if (unsubRequests) { unsubRequests(); unsubRequests = null; }
+    });
+
+    $('btn-social-search').addEventListener('click', async () => {
+      const rawInput = $('social-search-input').value.trim();
+      const pseudoLower = rawInput.toLowerCase();
+      const resContainer = $('social-search-result');
+      if (!rawInput) return;
+      resContainer.innerHTML = 'Recherche...';
+      try {
+        let uId = null;
+        let uData = null;
+
+        // 1. Chercher dans la collection 'pseudos' (nouveaux comptes)
+        const snap = await getDoc(doc(db, 'pseudos', pseudoLower));
+        if (snap.exists()) {
+          uId = snap.data().uid;
+          const uSnap = await getDoc(doc(db, 'users', uId));
+          if (uSnap.exists()) uData = uSnap.data();
+        } else {
+          // 2. Fallback pour les anciens comptes sans document 'pseudos'
+          const q = query(collection(db, 'users'), where('pseudo', '==', rawInput));
+          const oldSnap = await getDocs(q);
+          if (!oldSnap.empty) {
+            uId = oldSnap.docs[0].id;
+            uData = oldSnap.docs[0].data();
+          }
+        }
+
+        if (uData && uId !== currentUser.uid) {
+          resContainer.innerHTML = `
+            <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <strong>${uData.pseudo}</strong><br>
+                <small style="color:var(--muted)">XP: ${uData.xp||0}</small>
+              </div>
+              <button onclick="sendFriendRequest('${uId}', '${uData.pseudo}')" class="btn-primary" style="padding:8px 12px; font-size:0.8rem;">Ajouter</button>
+            </div>
+          `;
+        } else {
+          resContainer.innerHTML = '<span style="color:var(--red);">Joueur introuvable ou c\'est toi !</span>';
+        }
+      } catch (e) {
+        resContainer.innerHTML = 'Erreur: ' + e.message;
+      }
+    });
+
+    window.sendFriendRequest = async (toUserId, toPseudo) => {
+      try {
+        const requestId = `${currentUser.uid}_${toUserId}`;
+        await setDoc(doc(db, 'friendRequests', requestId), {
+          fromUserId: currentUser.uid,
+          fromPseudo: userProfile.pseudo,
+          toUserId: toUserId,
+          toPseudo: toPseudo,
+          status: 'pending',
+          createdAt: serverTimestamp()
+        });
+        $('social-search-result').innerHTML = '<span style="color:var(--green);">Demande envoyée !</span>';
+      } catch (e) { alert("Erreur d'envoi: " + e.message); }
+    };
+
+    window.acceptRequest = async (reqId, fromId, fromPseudo) => {
+      try {
+        await setDoc(doc(db, `users/${currentUser.uid}/friends`, fromId), { pseudo: fromPseudo, since: serverTimestamp() });
+        await setDoc(doc(db, `users/${fromId}/friends`, currentUser.uid), { pseudo: userProfile.pseudo, since: serverTimestamp() });
+        await deleteDoc(doc(db, 'friendRequests', reqId));
+      } catch (e) { console.error(e); }
+    };
+
+    window.rejectRequest = async (reqId) => {
+      try { await deleteDoc(doc(db, 'friendRequests', reqId)); } catch (e) {}
+    };
+
+    window.loadSocialData = function() {
+      if (!currentUser) return;
+      
+      // Listen for requests
+      if (unsubRequests) unsubRequests();
+      unsubRequests = onSnapshot(query(collection(db, 'friendRequests'), where('toUserId', '==', currentUser.uid)), snap => {
+        const list = $('social-requests-list');
+        list.innerHTML = '';
+        let pendingCount = 0;
+        snap.forEach(d => {
+          const r = d.data();
+          if (r.status === 'pending') {
+            pendingCount++;
+            list.innerHTML += `
+              <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+                <strong>${r.fromPseudo}</strong>
+                <div style="display:flex; gap:5px;">
+                  <button onclick="acceptRequest('${d.id}','${r.fromUserId}','${r.fromPseudo}')" class="btn-primary" style="padding:6px 10px; background:var(--green); min-width:unset;">✔️</button>
+                  <button onclick="rejectRequest('${d.id}')" class="btn-primary" style="padding:6px 10px; background:var(--red); min-width:unset;">❌</button>
+                </div>
+              </div>
+            `;
+          }
+        });
+        $('req-count').textContent = pendingCount;
+        $('social-requests-container').style.display = pendingCount > 0 ? 'block' : 'none';
+      });
+
+      // Listen for friends
+      if (unsubFriends) unsubFriends();
+      unsubFriends = onSnapshot(collection(db, `users/${currentUser.uid}/friends`), snap => {
+        const list = $('social-friends-list');
+        list.innerHTML = '';
+        snap.forEach(d => {
+          const f = d.data();
+          list.innerHTML += `
+            <div style="background:rgba(255,255,255,0.05); padding:12px; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+              <strong>${f.pseudo}</strong>
+              <button onclick="createChallenge('${d.id}','${f.pseudo}')" class="btn-outline" style="padding:6px 12px; font-size:0.8rem; border-color:var(--accent2); color:var(--accent2);">Défier ⚔️</button>
+            </div>
+          `;
+        });
+        if (snap.empty) list.innerHTML = '<span style="color:var(--muted);">Pas encore d\'amis. Ajoute-les en les cherchant par pseudo !</span>';
+      });
+
+      // Listen for challenges (received)
+      onSnapshot(query(collection(db, 'challenges'), where('toUserId', '==', currentUser.uid)), snap => {
+        const list = $('social-challenges-list');
+        if(!list) return;
+        list.innerHTML = '';
+        let count = 0;
+        snap.forEach(d => {
+          const c = d.data();
+          if (c.status === 'pending' && c.toScore === null) {
+            count++;
+            list.innerHTML += `
+              <div style="background:rgba(255,0,128,0.1); border:1px solid rgba(255,0,128,0.3); padding:10px; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+                <strong>${c.fromPseudo} t'a défié !</strong>
+                <button onclick="playChallenge('${d.id}', '${c.questionSet.join(',')}')" class="btn-primary" style="padding:6px 12px; background:var(--accent2);">Jouer 🏎️</button>
+              </div>
+            `;
+          }
+        });
+        $('chal-count').textContent = count;
+        $('social-challenges-container').style.display = count > 0 ? 'block' : 'none';
+      });
+    }
+
+    window.createChallenge = async (friendId, friendPseudo) => {
+      // Create a 5-question set
+      const qSet = generateSeries([...QUESTIONS], 5).map(q => q.ID);
+      try {
+        const docRef = await addDoc(collection(db, 'challenges'), {
+          fromUserId: currentUser.uid,
+          fromPseudo: userProfile.pseudo,
+          toUserId: friendId,
+          toPseudo: friendPseudo,
+          questionSet: qSet,
+          fromScore: null,
+          toScore: null,
+          status: 'pending',
+          createdAt: serverTimestamp()
+        });
+        // We auto-play the challenge immediately for the sender
+        playChallenge(docRef.id, qSet.join(','), true);
+      } catch (e) { alert("Erreur d'envoi du défi."); console.error(e); }
+    };
+
+    let activeChallengeId = null;
+    let isChallengeSender = false;
+
+    window.playChallenge = (challengeId, qSetStr, isSender=false) => {
+      const qIds = qSetStr.split(',');
+      const challengeQuestions = QUESTIONS.filter(q => qIds.includes(q.ID));
+      
+      gameState.questions = challengeQuestions;
+      gameState.currentIndex = 0;
+      gameState.score = 0;
+      gameState.streak = 0;
+      activeChallengeId = challengeId;
+      isChallengeSender = isSender;
+      
+      showScreen('screen-game');
+      startGame();
+    };
+
+    window.finishChallenge = async () => {
+      try {
+        const updateData = isChallengeSender 
+          ? { fromScore: gameState.score } 
+          : { toScore: gameState.score, status: 'completed' };
+          
+        await updateDoc(doc(db, 'challenges', activeChallengeId), updateData);
+        $('save-status').textContent = '✅ Défi enregistré !';
+      } catch (e) {
+        console.error(e);
+        $('save-status').textContent = '❌ Erreur de sauvegarde du défi.';
+      }
+      activeChallengeId = null;
+    };
+
+    // ============================================================
+    //  ÉCURIES (GUILDES)
+    // ============================================================
+    let unsubEcurie = null;
+    let unsubEcurieMembers = null;
+    const generateEcurieCode = () => Math.random().toString(36).substring(2,8).toUpperCase();
+
+    async function loadEcurieData() {
+      if (!currentUser || !userProfile) return;
+      $('ecurie-error').textContent = '';
+      
+      const ecurieId = userProfile.ecurieId;
+      if (!ecurieId) {
+        $('ecurie-dashboard').style.display = 'none';
+        $('ecurie-no-team').style.display = 'block';
+        return;
+      }
+      
+      $('ecurie-no-team').style.display = 'none';
+      $('ecurie-dashboard').style.display = 'block';
+
+      if (unsubEcurie) unsubEcurie();
+      unsubEcurie = onSnapshot(doc(db, 'ecuries', ecurieId), snap => {
+        if (!snap.exists()) {
+          // Ecurie supprimée
+          updateDoc(doc(db, 'users', currentUser.uid), { ecurieId: null });
+          userProfile.ecurieId = null;
+          loadEcurieData();
+          return;
+        }
+        const data = snap.data();
+        $('ecurie-name-display').textContent = data.name;
+        $('ecurie-division-name').textContent = data.division.charAt(0).toUpperCase() + data.division.slice(1);
+        $('ecurie-points-display').textContent = data.weeklyPoints || 0;
+        $('ecurie-code-display').textContent = data.inviteCode;
+        
+        let badge = '🥉';
+        if(data.division === 'argent') badge = '🥈';
+        if(data.division === 'or') badge = '🥇';
+        if(data.division === 'diamant') badge = '💎';
+        $('ecurie-division-badge').textContent = badge;
+        
+        loadEcurieLeaderboard(data.division);
+      });
+
+      if (unsubEcurieMembers) unsubEcurieMembers();
+      unsubEcurieMembers = onSnapshot(query(collection(db, `ecuries/${ecurieId}/members`), orderBy('weeklyContribution', 'desc')), snap => {
+        const list = $('ecurie-members-list');
+        list.innerHTML = '';
+        $('ecurie-member-count').textContent = snap.docs.length;
+        snap.forEach(d => {
+          const m = d.data();
+          const isMe = d.id === currentUser.uid;
+          list.innerHTML += `
+            <div style="background:rgba(255,255,255,0.05); padding:10px 15px; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <strong>${m.pseudo} ${isMe ? '(Toi)' : ''}</strong> ${m.role === 'chef' ? '👑' : ''}
+              </div>
+              <div style="color:var(--green); font-weight:bold;">${m.weeklyContribution || 0} pts</div>
+            </div>
+          `;
+        });
+      });
+    }
+
+    $('btn-ecurie-create').addEventListener('click', async () => {
+      const name = $('ecurie-create-name').value.trim();
+      if (!name) return;
+      if (name.length > 20) return $('ecurie-error').textContent = 'Nom trop long (max 20).';
+      
+      if (!userProfile || (userProfile.coins || 0) < 100) {
+        return $('ecurie-error').textContent = 'Il te faut 100 CodeCoins pour créer une Écurie !';
+      }
+      
+      try {
+        const code = generateEcurieCode();
+        const docRef = await addDoc(collection(db, 'ecuries'), {
+          name: name,
+          inviteCode: code,
+          chefUserId: currentUser.uid,
+          division: 'bronze',
+          weeklyPoints: 0,
+          createdAt: serverTimestamp()
+        });
+        
+        await setDoc(doc(db, `ecuries/${docRef.id}/members`, currentUser.uid), {
+          pseudo: userProfile.pseudo,
+          role: 'chef',
+          weeklyContribution: 0,
+          joinedAt: serverTimestamp()
+        });
+        
+        const newCoins = (userProfile.coins || 0) - 100;
+        await updateDoc(doc(db, 'users', currentUser.uid), { ecurieId: docRef.id, coins: newCoins });
+        userProfile.ecurieId = docRef.id;
+        userProfile.coins = newCoins;
+        loadEcurieData();
+        updateHeader();
+      } catch(e) { $('ecurie-error').textContent = "Erreur création."; console.error(e); }
+    });
+
+    $('btn-ecurie-join').addEventListener('click', async () => {
+      const code = $('ecurie-join-code').value.trim().toUpperCase();
+      if (!code) return;
+      
+      try {
+        const q = query(collection(db, 'ecuries'), where('inviteCode', '==', code));
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          $('ecurie-error').textContent = 'Code invalide ou Écurie introuvable.';
+          return;
+        }
+        
+        const ecurieDoc = snap.docs[0];
+        const mSnap = await getDocs(collection(db, `ecuries/${ecurieDoc.id}/members`));
+        if (mSnap.size >= 15) {
+          $('ecurie-error').textContent = 'Cette Écurie est complète (15/15).';
+          return;
+        }
+        
+        await setDoc(doc(db, `ecuries/${ecurieDoc.id}/members`, currentUser.uid), {
+          pseudo: userProfile.pseudo,
+          role: 'member',
+          weeklyContribution: 0,
+          joinedAt: serverTimestamp()
+        });
+        
+        await updateDoc(doc(db, 'users', currentUser.uid), { ecurieId: ecurieDoc.id });
+        userProfile.ecurieId = ecurieDoc.id;
+        loadEcurieData();
+      } catch(e) { $('ecurie-error').textContent = "Erreur pour rejoindre."; console.error(e); }
+    });
+
+    $('btn-ecurie-leave').addEventListener('click', async () => {
+      if(!confirm("Quitter ton Écurie ?")) return;
+      try {
+        const eId = userProfile.ecurieId;
+        await deleteDoc(doc(db, `ecuries/${eId}/members`, currentUser.uid));
+        await updateDoc(doc(db, 'users', currentUser.uid), { ecurieId: null });
+        userProfile.ecurieId = null;
+        loadEcurieData();
+      } catch(e) { console.error(e); }
+    });
+
+    $('btn-ecurie-refresh-lb').addEventListener('click', () => {
+      if(userProfile.ecurieId && unsubEcurie) {
+         // loadEcurieLeaderboard called by onSnapshot, but we can force UI update if needed.
+         $('btn-ecurie-refresh-lb').style.transform = 'rotate(180deg)';
+         setTimeout(() => $('btn-ecurie-refresh-lb').style.transform = 'none', 300);
+      }
+    });
+
+    function loadEcurieLeaderboard(division) {
+      const tbody = $('ecurie-lb-body');
+      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">Chargement...</td></tr>';
+      
+      // On getDocs (pas snapshot pour éviter trop de lectures)
+      getDocs(query(collection(db, 'ecuries'), where('division', '==', division), orderBy('weeklyPoints', 'desc'), limit(10)))
+        .then(snap => {
+          tbody.innerHTML = '';
+          snap.forEach((d, i) => {
+            const e = d.data();
+            const isMyEcurie = d.id === userProfile.ecurieId;
+            tbody.innerHTML += `
+              <tr style="${isMyEcurie ? 'background:rgba(16,185,129,0.15);' : ''}">
+                <td style="padding:8px 0;">${i+1}</td>
+                <td><strong>${e.name}</strong></td>
+                <td style="text-align:right; font-weight:bold; color:var(--green);">${e.weeklyPoints || 0}</td>
+              </tr>
+            `;
+          });
+        }).catch(e => console.error(e));
+    }
+
+    // ASTUCE CLIENT : Reset manuel des ligues (remplace la Cloud Function pour le développement)
+    $('btn-admin-reset').addEventListener('click', async () => {
+      if(!confirm("⚠️ ADMIN : Déclencher la fin de semaine ? Cela va promouvoir les tops écuries et remettre les compteurs à 0 !")) return;
+      
+      const btn = $('btn-admin-reset');
+      btn.textContent = "Calcul en cours...";
+      btn.disabled = true;
+
+      try {
+        const divisionsOrder = ['bronze', 'argent', 'or', 'diamant'];
+        const ecuriesByDiv = { bronze:[], argent:[], or:[], diamant:[] };
+        
+        // 1. Récupérer TOUTES les écuries
+        const snap = await getDocs(collection(db, 'ecuries'));
+        snap.forEach(d => {
+          const e = d.data();
+          e.id = d.id;
+          if (ecuriesByDiv[e.division]) ecuriesByDiv[e.division].push(e);
+        });
+
+        const updates = [];
+
+        // 2. Traiter chaque division
+        for (let div of divisionsOrder) {
+          let ecuries = ecuriesByDiv[div];
+          // Trier par points décroissants
+          ecuries.sort((a,b) => (b.weeklyPoints || 0) - (a.weeklyPoints || 0));
+          
+          const currentDivIndex = divisionsOrder.indexOf(div);
+          
+          ecuries.forEach((e, index) => {
+            let newDiv = e.division;
+            // Top 3 monte (sauf Diamant)
+            if (index < 3 && currentDivIndex < 3) {
+              newDiv = divisionsOrder[currentDivIndex + 1];
+            }
+            // Bottom 3 descend (sauf Bronze), si l'écurie est dans les 3 dernières et qu'il y a plus de 6 écuries
+            else if (index >= ecuries.length - 3 && currentDivIndex > 0 && ecuries.length > 5) {
+              newDiv = divisionsOrder[currentDivIndex - 1];
+            }
+            
+            updates.push({ id: e.id, newDiv });
+          });
+        }
+
+        // 3. Appliquer les mises à jour et reset les points
+        for (let u of updates) {
+          await updateDoc(doc(db, 'ecuries', u.id), {
+            division: u.newDiv,
+            weeklyPoints: 0
+          });
+          
+          // Reset des membres (Optionnel mais recommandé)
+          const mSnap = await getDocs(collection(db, `ecuries/${u.id}/members`));
+          for (let m of mSnap.docs) {
+            await updateDoc(doc(db, `ecuries/${u.id}/members`, m.id), { weeklyContribution: 0 });
+          }
+        }
+
+        alert("✅ Reset terminé avec succès !");
+      } catch (e) {
+        console.error(e);
+        alert("❌ Erreur pendant le reset.");
+      }
+      
+      btn.textContent = "🔧 Dev: Reset";
+      btn.disabled = false;
+    });
+
+  </script>
+
+  <style>
+    :root {
+      --bg:       #0F172A;
+      --surface:  #1E293B;
+      --card:     #1E293B;
+      --accent:   #6366F1;
+      --accent2:  #A855F7;
+      --green:    #10B981;
+      --red:      #EF4444;
+      --yellow:   #F59E0B;
+      --text:     #F8FAFC;
+      --muted:    #94A3B8;
+      --radius:   24px;
+      --shadow:   0 12px 30px -5px rgba(0, 0, 0, 0.4);
+      --border:   2px solid #334155;
+    }
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Outfit',system-ui,sans-serif; background:#0A0F1C; color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 16px 60px; overflow-x:hidden; position:relative; }
+    
+    .bg-glow { position: fixed; top: -10%; left: -10%; width: 50vw; height: 50vw; background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%); border-radius: 50%; z-index: -1; pointer-events: none; animation: floatGlow 15s infinite alternate ease-in-out; filter: blur(60px); }
+    .bg-glow-2 { position: fixed; bottom: -10%; right: -10%; width: 60vw; height: 60vw; background: radial-gradient(circle, rgba(168,85,247,0.12) 0%, transparent 70%); border-radius: 50%; z-index: -1; pointer-events: none; animation: floatGlow2 20s infinite alternate ease-in-out; filter: blur(60px); }
+    @keyframes floatGlow { from { transform: translate(0,0) scale(1); } to { transform: translate(100px, 50px) scale(1.2); } }
+    @keyframes floatGlow2 { from { transform: translate(0,0) scale(1); } to { transform: translate(-100px, -50px) scale(1.3); } }
+
+    @keyframes screenEnter { 0% { opacity: 0; transform: translateY(30px) scale(0.97); filter: blur(10px); } 100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } }
+    @keyframes cardIn   { from{opacity:0;transform:translateY(30px) scale(0.95)} to{opacity:1;transform:translateY(0) scale(1)} }
+    @keyframes fadeUp   { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+    /* ── HEADER ── */
+    header { position:relative; z-index:1; text-align:center; margin-bottom:30px; width:100%; max-width:680px; }
+    .logo  { font-size:2.8rem; font-weight:900; letter-spacing:-1.5px; background:linear-gradient(to right, #00DFD8, #7928CA, #FF0080); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-size: 200% auto; animation: gradientText 5s linear infinite; }
+    @keyframes gradientText { 0% {background-position: 0% center} 100% {background-position: 200% center} }
+    .subtitle { font-size:1rem; color:var(--muted); margin-top:4px; font-weight:300; letter-spacing: 0.5px; }
+    
+    .header-actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:20px; }
+    .header-btn { background:var(--surface); border:var(--border); border-radius:50px; padding:8px 20px; color:var(--text); font-family:'Outfit',sans-serif; font-size:.85rem; font-weight:700; cursor:pointer; transition:all .3s cubic-bezier(.34,1.56,.64,1); backdrop-filter: blur(10px); }
+    .header-btn:hover { border-color:rgba(255,255,255,0.3); transform:translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
+    #header-user { color:#fff; display:none; border-color:var(--accent); background: rgba(121, 40, 202, 0.2); }
+    #btn-logout  { display:none; }
+    #btn-logout:hover { border-color:var(--red); color:var(--red); }
+
+    /* XP Bar in header */
+    #header-xp-wrap { display:none; flex-direction:column; align-items:center; gap:6px; margin-top:16px; width:100%; max-width:400px; margin-left:auto; margin-right:auto; }
+    #header-level-label { font-size:.9rem; font-weight:800; color:var(--green); text-shadow: 0 0 10px rgba(0, 223, 216, 0.4); }
+    #header-xp-bar { width:100%; height:10px; background:rgba(0,0,0,0.5); border-radius:50px; overflow:hidden; border: 1px solid rgba(255,255,255,0.05); }
+    #header-xp-fill { height:100%; background:linear-gradient(90deg,var(--green),#aaff00); border-radius:50px; transition:width 1s cubic-bezier(.4,0,.2,1); box-shadow:0 0 15px var(--green); }
+    .stats-row { display: flex; gap: 15px; }
+    .stats-row span { font-size:.85rem; font-weight:800; padding: 4px 12px; border-radius: 50px; background: var(--surface); border: var(--border); }
+    #header-daily   { color:var(--yellow); display:none; }
+    #header-trophies{ color:var(--accent2); }
+    #header-xp-txt  { color:var(--muted); font-size: 0.8rem; }
+
+    /* ── BASE CARDS ── */
+    .glass-card {
+      background: var(--card); border: var(--border); border-radius: var(--radius);
+      padding: 36px 28px; box-shadow: var(--shadow);
+      animation: cardIn .6s cubic-bezier(.34,1.56,.64,1);
+      position: relative; overflow: hidden;
+    }
+
+    /* ── BUTTONS ── */
+    .btn-primary { 
+      padding:16px 24px; background:linear-gradient(135deg,var(--accent),var(--accent2)); 
+      color:#fff; border:none; border-radius:18px; font-family:'Outfit',sans-serif; 
+      font-size:1.05rem; font-weight:800; cursor:pointer; transition:all .3s cubic-bezier(.34,1.56,.64,1); 
+      box-shadow:0 8px 24px rgba(99, 102, 241, 0.3); text-transform: uppercase; letter-spacing: 1px;
+    }
+    .btn-primary:hover:not(:disabled) { transform:translateY(-4px) scale(1.02); box-shadow:0 12px 32px rgba(168, 85, 247, 0.4); }
+    .btn-primary:disabled { opacity:.6; cursor:not-allowed; }
+
+    .btn-outline {
+      padding:16px 24px; background:transparent; border: 2px solid var(--accent);
+      color:var(--text); border-radius:18px; font-family:'Outfit',sans-serif; 
+      font-size:1.05rem; font-weight:800; cursor:pointer; transition:all .3s ease; 
+    }
+    .btn-outline:hover { background: rgba(99, 102, 241, 0.1); transform:translateY(-2px); box-shadow:0 8px 24px rgba(99, 102, 241, 0.2); }
+
+    /* ── AUTH ── */
+    #screen-auth { position:relative; z-index:1; width:100%; max-width:460px; }
+    .auth-tabs  { display:flex; background:rgba(0,0,0,0.4); border-radius:var(--radius); border:var(--border); overflow:hidden; margin-bottom:20px; padding: 6px; }
+    .auth-tab   { flex:1; padding:14px; text-align:center; font-weight:800; font-size:.95rem; cursor:pointer; color:var(--muted); transition:all .3s; border-radius: 18px; }
+    .auth-tab.active { background:var(--card); color:#fff; box-shadow: 0 4px 12px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); }
+    form { display:flex; flex-direction:column; gap:16px; }
+    .field-group { display:flex; flex-direction:column; gap:8px; }
+    .field-group label { font-size:.85rem; font-weight:700; color:var(--muted); margin-left: 4px; }
+    .field-group input { background:rgba(0,0,0,0.3); border:2px solid rgba(255,255,255,0.05); border-radius:16px; padding:14px 18px; color:var(--text); font-family:'Outfit',sans-serif; font-size:1rem; outline:none; transition:all .3s; }
+    .field-group input:focus { border-color:var(--accent); background:rgba(0,0,0,0.5); box-shadow: 0 0 15px rgba(121,40,202,0.3); }
+    .auth-switch { text-align:center; margin-top:16px; font-size:.9rem; color:var(--muted); }
+    .auth-switch a { color:var(--green); text-decoration:none; font-weight:800; cursor:pointer; }
+    #auth-error { display:none; background:rgba(255,0,85,.15); border:1px solid rgba(255,0,85,.4); border-radius:14px; padding:14px; color:#ff99aa; font-size:.9rem; font-weight:700; text-align:center; margin-bottom:16px; }
+
+    /* ── HOME SCREEN ── */
+    #screen-home { position:relative; z-index:1; width:100%; max-width:680px; }
+    .home-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+    .home-card { 
+      background: var(--card); border: var(--border); border-radius: var(--radius); padding: 30px; 
+      display: flex; align-items: center; gap: 20px; cursor: pointer; transition: all 0.4s cubic-bezier(.34,1.56,.64,1);
+      backdrop-filter: blur(20px);
+    }
+    .home-card:hover { transform: translateY(-5px) scale(1.02); border-color: rgba(255,255,255,0.2); }
+    .home-card.solo:hover { box-shadow: 0 15px 35px rgba(0, 223, 216, 0.2); }
+    .home-card.duel:hover { box-shadow: 0 15px 35px rgba(255, 0, 128, 0.2); }
+    .home-card.tournoi:hover { box-shadow: 0 15px 35px rgba(245, 166, 35, 0.2); }
+    .home-card.ecurie:hover { box-shadow: 0 15px 35px rgba(16, 185, 129, 0.2); }
+    .home-icon { font-size: 3rem; width: 80px; height: 80px; border-radius: 20px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.3); }
+    .home-card.solo .home-icon { background: linear-gradient(135deg, rgba(0,223,216,0.2), transparent); color: var(--green); border: 1px solid rgba(0,223,216,0.3); }
+    .home-card.duel .home-icon { background: linear-gradient(135deg, rgba(255,0,128,0.2), transparent); color: var(--accent2); border: 1px solid rgba(255,0,128,0.3); }
+    .home-card.tournoi .home-icon { background: linear-gradient(135deg, rgba(245,166,35,0.2), transparent); color: var(--yellow); border: 1px solid rgba(245,166,35,0.3); }
+    .home-card.ecurie .home-icon { background: linear-gradient(135deg, rgba(16,185,129,0.2), transparent); color: var(--green); border: 1px solid rgba(16,185,129,0.3); }
+    .home-info h3 { font-size: 1.5rem; font-weight: 800; margin-bottom: 5px; }
+    .home-info p { color: var(--muted); font-size: 0.95rem; line-height: 1.4; }
+
+    /* ── QUESTION CARD ── */
+    #screen-game { width:100%; max-width:680px; position:relative; z-index:1; }
+    #question-img { width: 100%; max-height: 250px; object-fit: cover; border-radius: 16px; margin-bottom: 24px; border: 1px solid rgba(255,255,255,0.1); display: none; }
+    #question-number { font-size:.8rem; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:var(--green); margin-bottom:12px; }
+    #question-text   { font-size:1.3rem; font-weight:800; line-height:1.4; margin-bottom:30px; }
+
+    #answers { display:flex; flex-direction:column; gap:12px; margin-bottom:20px; }
+    .answer-btn { 
+      background:rgba(0,0,0,0.4); border:2px solid rgba(255,255,255,0.05); border-radius:16px; 
+      padding:18px 24px; color:var(--text); font-family:'Outfit',sans-serif; font-size:1.05rem; 
+      font-weight:700; text-align:left; cursor:pointer; transition:all .3s cubic-bezier(.34,1.56,.64,1); 
+      position:relative; overflow:hidden;
+    }
+    .answer-btn:hover:not(:disabled) { border-color:var(--accent); transform:translateX(8px); background: rgba(121, 40, 202, 0.1); }
+    .answer-btn.correct { border-color:var(--green); background:rgba(0,223,216,.15); box-shadow: 0 0 20px rgba(0,223,216,0.3); }
+    .answer-btn.wrong   { border-color:var(--red);   background:rgba(255,0,85,.15); box-shadow: 0 0 20px rgba(255,0,85,0.3); animation:shake .4s ease; }
+
+    #feedback { border-radius:16px; padding:18px 24px; font-size:1rem; font-weight:700; display:none; animation:fadeUp .4s ease; margin-bottom:20px; }
+    #feedback.correct { background:rgba(16, 185, 129,.15); border:1px solid rgba(16, 185, 129,.4); color:#a7f3d0; }
+    #feedback.wrong   { background:rgba(239, 68, 68,.15); border:1px solid rgba(239, 68, 68,.4); color:#fecaca; }
+
+    /* ── LEADERBOARD ── */
+    #screen-leaderboard { display:none; position:relative; z-index:1; width:100%; max-width:680px; }
+    .lb-header { display:flex; align-items:center; gap:14px; margin-bottom:24px; }
+    .lb-header h2 { font-size:2rem; font-weight:900; flex:1; background: linear-gradient(135deg, #fff, #aaa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    #lb-table-general, #lb-table-tournament { width:100%; border-collapse:collapse; background:var(--card); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); border:var(--border); }
+    th { padding:18px; text-align:left; font-size:.8rem; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:var(--muted); background:rgba(0,0,0,0.3); }
+    td { padding:16px 18px; border-top:1px solid rgba(255,255,255,.05); font-weight: 600; }
+    tr.lb-me td { background:rgba(121, 40, 202,.15); }
+    .lb-rank   { font-size:1.3rem; min-width:40px; }
+    .lb-you    { background:var(--green); color:#000; border-radius:50px; padding:2px 10px; font-size:.7rem; font-weight:900; margin-left:8px; text-transform: uppercase; }
+
+    /* DUEL STYLES */
+    #duel-topbar { display:flex; justify-content:space-between; align-items:center; background:var(--card); padding:20px 24px; border-radius:var(--radius); border:var(--border); box-shadow:var(--shadow); margin-bottom:24px; }
+    .duel-anim-sd { color:var(--red) !important; animation: pulseRed 1s infinite alternate; }
+
+    /* TOURNOI STYLES */
+    #screen-tournament { display:none; position:relative; z-index:1; width:100%; max-width:680px; }
+    #t-topbar { display:flex; justify-content:space-between; align-items:center; background:var(--card); padding:20px 24px; border-radius:var(--radius); border:var(--border); margin-bottom:24px; }
+
+    /* ===== FLOATING POPUPS ===== */
+    .score-popup { position:fixed; font-size:1.8rem; font-weight:900; pointer-events:none; z-index:100; animation:popupAnim .9s ease forwards; }
+    @keyframes popupAnim { 0% {opacity:1;transform:translateY(0)scale(1)} 80% {opacity:1;transform:translateY(-80px)scale(1.2)} 100%{opacity:0;transform:translateY(-100px)scale(1)} }
+    
+    .game-toast { position:fixed; top:20px; right:20px; background:var(--card); border:2px solid var(--tc, var(--accent2)); border-radius:12px; padding:12px 20px; font-weight:800; color:var(--text); z-index:200; box-shadow:0 4px 20px rgba(0,0,0,.4); animation:toastIn .4s cubic-bezier(.34,1.56,.64,1), toastOut .3s ease 2.3s forwards; }
+    @keyframes toastIn  { from{opacity:0;transform:translateX(60px)} to{opacity:1;transform:translateX(0)} }
+    @keyframes toastOut { from{opacity:1} to{opacity:0} }
+
+    #level-badge { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%)scale(0); z-index:300; background:linear-gradient(135deg,var(--accent),var(--accent2)); border-radius:20px; padding:28px 40px; text-align:center; box-shadow:0 0 60px rgba(121, 40, 202,.6); pointer-events:none; }
+    #level-badge.show { animation:levelPop .6s cubic-bezier(.34,1.56,.64,1) forwards, levelFade .4s ease 1.8s forwards; }
+    @keyframes levelPop  { to{transform:translate(-50%,-50%)scale(1)} }
+    @keyframes levelFade { to{opacity:0} }
+
+    @keyframes shake  { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-10px)} 40%{transform:translateX(10px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
+  </style>
+</head>
+<body>
+
+<!-- GLOBAL LOADER -->
+<div id="global-loader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#0A0F1C; z-index:9999; display:flex; justify-content:center; align-items:center; flex-direction:column; transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.8s;">
+  <div class="logo" style="font-size: 3.5rem;">CodePilote</div>
+  <div style="margin-top:25px; width:40px; height:40px; border:4px solid rgba(255,255,255,0.05); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite;"></div>
+</div>
+
+<div class="bg-glow"></div>
+<div class="bg-glow-2"></div>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="logo">CodePilote</div>
+  <div class="subtitle">La route, en mode e-sport 🏁</div>
+  <div class="header-actions">
+    <span id="header-user" class="header-btn"></span>
+    <button id="btn-logout" class="header-btn">Déconnexion</button>
+  </div>
+  <div id="header-xp-wrap">
+    <span id="header-level-label"></span>
+    <div id="header-xp-bar"><div id="header-xp-fill" style="width:0%"></div></div>
+    <div class="stats-row">
+      <span id="header-xp-txt"></span>
+      <span id="header-daily"></span>
+      <span id="header-trophies"></span>
+      <span id="header-coins" style="color:#FCD34D;"></span>
+    </div>
+  </div>
+</header>
+
+<!-- ════ SCREEN : AUTH ════ -->
+<div id="screen-auth">
+  <div class="auth-tabs">
+    <div class="auth-tab active" id="auth-tab-signin">Se connecter</div>
+    <div class="auth-tab"        id="auth-tab-signup">Créer un compte</div>
+  </div>
+  <div id="auth-error"></div>
+  <form id="form-signin" class="glass-card" style="display:flex">
+    <h2 style="font-size:1.6rem; font-weight:800; margin-bottom:10px;">👋 Bon retour !</h2>
+    <div class="field-group"><label>Email</label><input id="si-email" type="email" placeholder="ton@email.fr" required /></div>
+    <div class="field-group"><label>Mot de passe</label><input id="si-pwd" type="password" placeholder="••••••••" required /></div>
+    <button id="btn-signin" type="submit" class="btn-primary" style="margin-top:10px;">Se connecter</button>
+    <div class="auth-switch">Pas encore de compte ? <a id="toggle-to-signup">S'inscrire</a></div>
+  </form>
+  <form id="form-signup" class="glass-card" style="display:none">
+    <h2 style="font-size:1.6rem; font-weight:800; margin-bottom:10px;">🚀 Rejoindre CodePilote</h2>
+    <div class="field-group"><label>Pseudo</label><input id="su-pseudo" type="text" required minlength="2" maxlength="20" /></div>
+    <div class="field-group"><label>Email</label><input id="su-email" type="email" required /></div>
+    <div class="field-group"><label>Mot de passe</label><input id="su-pwd" type="password" required minlength="6" /></div>
+    <div class="field-group"><label>Confirme le mot de passe</label><input id="su-pwd2" type="password" required /></div>
+    <button id="btn-signup" type="submit" class="btn-primary" style="margin-top:10px;">Créer mon compte</button>
+    <div class="auth-switch">Déjà un compte ? <a id="toggle-to-signin">Se connecter</a></div>
+  </form>
+</div>
+
+<!-- ════ SCREEN : HOME ════ -->
+<div id="screen-home" style="display:none">
+  <div class="home-grid">
+    <div class="home-card solo" id="btn-home-solo">
+      <div class="home-icon">🚦</div>
+      <div class="home-info">
+        <h3>Entraînement Solo</h3>
+        <p>15 questions pour réviser sans stress. Gagne de l'XP et monte en niveau.</p>
+      </div>
+    </div>
+    <div class="home-card duel" id="btn-home-duel">
+      <div class="home-icon">⚔️</div>
+      <div class="home-info">
+        <h3>Mode Duel (1v1)</h3>
+        <p>Affronte un joueur en temps réel sur 5 questions. Gagne des trophées !</p>
+      </div>
+    </div>
+    <div class="home-card tournoi" id="btn-home-tournament">
+      <div class="home-icon">🏆</div>
+      <div class="home-info">
+        <h3>Tournoi du Jour</h3>
+        <p>10 questions, 60 secondes max. Tente de faire le meilleur score du jour.</p>
+      </div>
+    </div>
+    <div class="home-card" id="btn-home-social" style="background: rgba(168,85,247,0.1); border-color: var(--accent2);">
+      <div class="home-icon" style="color: var(--accent2);">🤝</div>
+      <div class="home-info">
+        <h3>Amis & Défis</h3>
+        <p>Ajoute tes amis, comparez vos stats et lancez-vous des défis !</p>
+      </div>
+    </div>
+    <div class="home-card ecurie" id="btn-home-ecurie">
+      <div class="home-icon">🏎️</div>
+      <div class="home-info">
+        <h3>Mon Écurie</h3>
+        <p>Rejoins une guilde, cumulez des points ensemble et montez en Ligue !</p>
+      </div>
+    </div>
+    <button class="btn-outline" id="btn-leaderboard" style="width:100%; margin-top:10px;">🥇 Voir les Classements</button>
+  </div>
+</div>
+
+<!-- ════ SCREEN : SOCIAL ════ -->
+<div id="screen-social" style="display:none; width:100%; max-width:680px; position:relative; z-index:1;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+    <h2 style="font-size:2rem; font-weight:900;">Communauté 🤝</h2>
+    <button class="btn-outline" id="btn-back-home-social" style="padding: 10px 16px; font-size:0.9rem;">← Retour</button>
+  </div>
+
+  <div class="glass-card" style="margin-bottom:20px; padding:20px;">
+    <h3 style="font-size:1.2rem; font-weight:800; margin-bottom:10px;">Rechercher un joueur</h3>
+    <div style="display:flex; gap:10px;">
+      <input type="text" id="social-search-input" placeholder="Pseudo exact..." style="flex:1; background:rgba(0,0,0,0.3); border:2px solid rgba(255,255,255,0.05); border-radius:12px; padding:12px 16px; color:var(--text); font-family:'Outfit'; outline:none;" />
+      <button id="btn-social-search" class="btn-primary" style="padding:12px 20px;">🔍 Chercher</button>
+    </div>
+    <div id="social-search-result" style="margin-top:15px;"></div>
+  </div>
+
+  <div id="social-requests-container" class="glass-card" style="margin-bottom:20px; padding:20px; display:none;">
+    <h3 style="font-size:1.2rem; font-weight:800; margin-bottom:15px; color:var(--yellow);">Demandes reçues (<span id="req-count">0</span>)</h3>
+    <div id="social-requests-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+  </div>
+
+  <div id="social-challenges-container" class="glass-card" style="margin-bottom:20px; padding:20px; display:none;">
+    <h3 style="font-size:1.2rem; font-weight:800; margin-bottom:15px; color:var(--accent2);">⚔️ Défis reçus (<span id="chal-count">0</span>)</h3>
+    <div id="social-challenges-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+  </div>
+
+  <div class="glass-card" style="padding:20px;">
+    <h3 style="font-size:1.2rem; font-weight:800; margin-bottom:15px;">Mes Amis</h3>
+    <div id="social-friends-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+  </div>
+</div>
+
+<!-- ════ SCREEN : ÉCURIE ════ -->
+<div id="screen-ecurie" style="display:none; width:100%; max-width:680px; position:relative; z-index:1;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+    <h2 style="font-size:2rem; font-weight:900;">Mon Écurie 🏎️</h2>
+    <div>
+      <button id="btn-admin-reset" class="btn-outline" style="padding: 10px 16px; font-size:0.9rem; border-color:var(--yellow); color:var(--yellow); margin-right:10px;">🔧 Dev: Reset</button>
+      <button class="btn-outline" id="btn-back-home-ecurie" style="padding: 10px 16px; font-size:0.9rem;">← Retour</button>
+    </div>
+  </div>
+
+  <!-- État 1 : Sans écurie -->
+  <div id="ecurie-no-team" style="display:none;">
+    <div class="glass-card" style="padding:20px; text-align:center; margin-bottom:20px;">
+      <h3 style="font-size:1.5rem; margin-bottom:10px;">Tu n'as pas encore d'Écurie !</h3>
+      <p style="color:var(--muted); margin-bottom:20px;">Rejoins une écurie pour participer au classement des ligues (Bronze, Argent, Or, Diamant) avec d'autres pilotes !</p>
+      
+      <div style="display:flex; flex-direction:column; gap:15px; max-width:400px; margin:0 auto;">
+        <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05);">
+          <h4 style="margin-bottom:10px;">Créer une Écurie</h4>
+          <input type="text" id="ecurie-create-name" placeholder="Nom de l'écurie..." style="width:100%; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:10px; color:var(--text); font-family:'Outfit'; outline:none; margin-bottom:10px;" />
+          <button id="btn-ecurie-create" class="btn-primary" style="width:100%;">Créer</button>
+        </div>
+
+        <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05);">
+          <h4 style="margin-bottom:10px;">Rejoindre une Écurie</h4>
+          <input type="text" id="ecurie-join-code" placeholder="Code d'invitation (6 lettres)..." style="width:100%; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:10px; color:var(--text); font-family:'Outfit'; outline:none; text-transform:uppercase; margin-bottom:10px;" maxlength="6" />
+          <button id="btn-ecurie-join" class="btn-outline" style="width:100%;">Rejoindre</button>
+        </div>
+      </div>
+      <div id="ecurie-error" style="color:var(--red); margin-top:15px; font-weight:bold;"></div>
+    </div>
+  </div>
+
+  <!-- État 2 : Dans une écurie -->
+  <div id="ecurie-dashboard" style="display:none;">
+    <div class="glass-card" style="padding:20px; margin-bottom:20px; text-align:center; position:relative;">
+      <button id="btn-ecurie-leave" class="btn-outline" style="position:absolute; top:15px; right:15px; padding:6px 12px; font-size:0.8rem; border-color:var(--red); color:var(--red);">Quitter</button>
+      <div id="ecurie-division-badge" style="font-size:3rem; margin-bottom:10px;">🥉</div>
+      <h2 id="ecurie-name-display" style="font-size:2rem; font-weight:900; margin-bottom:5px;">Nom Ecurie</h2>
+      <p style="color:var(--muted); font-size:0.9rem; margin-bottom:15px;">Ligue <span id="ecurie-division-name" style="font-weight:bold; color:#fff;">Bronze</span></p>
+      
+      <div style="display:flex; justify-content:center; gap:20px; margin-bottom:20px;">
+        <div style="background:rgba(0,0,0,0.3); padding:10px 20px; border-radius:12px;">
+          <div style="font-size:0.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:1px;">Points Hebdo</div>
+          <div id="ecurie-points-display" style="font-size:1.8rem; font-weight:900; color:var(--green);">0</div>
+        </div>
+        <div style="background:rgba(0,0,0,0.3); padding:10px 20px; border-radius:12px;">
+          <div style="font-size:0.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:1px;">Code Invitation</div>
+          <div id="ecurie-code-display" style="font-size:1.5rem; font-weight:900; letter-spacing:3px; color:var(--accent2); cursor:pointer;" onclick="navigator.clipboard.writeText(this.innerText); alert('Code copié !')">ABCDEF</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Membres de l'écurie -->
+    <div class="glass-card" style="padding:20px; margin-bottom:20px;">
+      <h3 style="font-size:1.2rem; font-weight:800; margin-bottom:15px;">Pilotes de l'Écurie (<span id="ecurie-member-count">0</span>/15)</h3>
+      <div id="ecurie-members-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+    </div>
+    
+    <!-- Classement de la Division -->
+    <div class="glass-card" style="padding:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <h3 style="font-size:1.2rem; font-weight:800;">Classement (Ligue)</h3>
+        <button id="btn-ecurie-refresh-lb" class="btn-outline" style="padding:4px 8px; font-size:0.8rem;">🔄</button>
+      </div>
+      <table id="ecurie-lb-table" style="width:100%; text-align:left; border-collapse:collapse;">
+        <thead>
+          <tr style="color:var(--muted); font-size:0.8rem; text-transform:uppercase;">
+            <th style="padding:8px 0; width:40px;">#</th>
+            <th>Écurie</th>
+            <th style="text-align:right;">Points</th>
+          </tr>
+        </thead>
+        <tbody id="ecurie-lb-body"></tbody>
+      </table>
+      <p style="font-size:0.8rem; color:var(--muted); margin-top:15px; text-align:center;">Le classement est réinitialisé chaque lundi.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SCREEN : ONBOARDING ════ -->
+<div id="screen-onboarding" style="display:none; width:100%; max-width:560px;">
+  <div id="lesson-dots" style="display:flex; justify-content:center; gap:10px; margin-bottom:24px;"></div>
+  <div id="lesson-card" class="glass-card" style="text-align: center;">
+    <div id="lesson-counter" style="font-size:.8rem; font-weight:800; color:var(--accent); margin-bottom:10px;"></div>
+    <div id="lesson-emoji" style="font-size:4rem; margin-bottom:10px;"></div>
+    <h2 id="lesson-title" style="font-size:1.8rem; font-weight:900; margin-bottom:24px;"></h2>
+    <ul id="lesson-points" style="text-align:left; list-style:none; display:flex; flex-direction:column; gap:12px; margin-bottom:30px;"></ul>
+    <button id="lesson-next-btn" class="btn-primary" style="width:100%;"></button>
+  </div>
+</div>
+
+<!-- ════ SCREEN : JEU SOLO ════ -->
+<div id="screen-game" style="display:none">
+  <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
+    <button class="btn-outline" id="btn-back-home-game" style="padding: 10px 16px; font-size:0.9rem;">← Quitter</button>
+    <div style="display:flex; gap:10px;">
+      <span style="background:var(--card); padding:10px 16px; border-radius:12px; font-weight:800; border:var(--border);">⭐ <span id="score-val" style="color:var(--yellow)">0</span></span>
+      <span style="background:var(--card); padding:10px 16px; border-radius:12px; font-weight:800; border:var(--border);">🔥 <span id="streak-val" style="color:var(--accent2)">0</span></span>
+    </div>
+  </div>
+  
+  <div style="width:100%; background:rgba(0,0,0,0.5); border-radius:50px; height:8px; margin-bottom:24px;"><div id="progress-fill" style="height:100%; background:var(--green); border-radius:50px; transition:width .5s; box-shadow:0 0 10px var(--green);"></div></div>
+
+  <div id="question-card" class="glass-card">
+    <div id="question-number">Question 1 / 15</div>
+    <div style="position:relative; display:inline-block; width:100%;">
+      <img id="question-img" src="" alt="Situation de route" style="width:100%; border-radius:12px; margin-bottom:15px; display:none;" />
+      <button id="btn-credits" style="display:none; position:absolute; bottom:25px; right:10px; background:rgba(0,0,0,0.6); color:white; border:none; border-radius:50%; width:30px; height:30px; font-weight:bold; cursor:pointer;" title="Crédits & Licence">i</button>
+    </div>
+    <div id="credits-popup" style="display:none; position:absolute; bottom:60px; right:10px; background:var(--surface); padding:10px; border-radius:8px; border:var(--border); font-size:0.8rem; z-index:10; box-shadow:0 10px 25px rgba(0,0,0,0.5);"></div>
+    <div id="question-text">Chargement…</div>
+    <div id="answers"></div>
+    <div id="feedback"></div>
+    <button id="next-btn" class="btn-primary" style="width:100%; display:none; margin-top:20px;">Continuer →</button>
+  </div>
+
+  <div id="results-screen" class="glass-card" style="display:none; text-align:center;">
+    <span id="trophy-icon" style="font-size:5rem; display:block; margin-bottom:10px;">🏆</span>
+    <h2 id="result-title" style="font-size:2rem; font-weight:900; margin-bottom:20px;"></h2>
+    <div style="font-size:4rem; font-weight:900; color:var(--yellow); margin-bottom:30px;" id="final-score">0</div>
+    <div style="display:flex; justify-content:center; gap:20px; margin-bottom:30px;">
+      <div><div style="font-size:1.5rem; font-weight:900; color:var(--green);" id="r-correct">0</div><div style="font-size:.8rem; color:var(--muted); text-transform:uppercase;">Bonnes</div></div>
+      <div><div style="font-size:1.5rem; font-weight:900; color:var(--red);" id="r-wrong">0</div><div style="font-size:.8rem; color:var(--muted); text-transform:uppercase;">Erreurs</div></div>
+    </div>
+    <div id="xp-gained-wrap" style="display:none; justify-content:center; align-items:center; gap:10px; margin-bottom:20px;">
+      <span style="font-size:.9rem; color:var(--muted); font-weight:800;">XP GAGNÉS :</span> <span id="xp-gained-val" style="font-size:1.5rem; font-weight:900; color:var(--accent);">+0</span>
+    </div>
+    <div id="save-status" style="color:var(--green); font-weight:800; margin-bottom:20px;"></div>
+    <div id="badges-section" style="text-align:left; margin-bottom:30px;"></div>
+    <div style="display:flex; gap:10px;">
+      <button id="restart-btn" class="btn-primary" style="flex:1;">🔄 Rejouer</button>
+      <button id="btn-back-home-res" class="btn-outline" style="flex:1;">Menu principal</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SCREEN : LOBBY DUEL ════ -->
+<div id="screen-lobby" style="display:none; text-align:center; position:relative; z-index:1; width:100%; max-width:500px;">
+  <div class="glass-card" style="padding:50px 30px;">
+    <h2 style="font-size:2.2rem; font-weight:900; margin-bottom:20px; color:var(--accent2);">Mode Duel ⚔️</h2>
+    <div style="font-size:1.1rem; color:var(--muted); margin-bottom:40px;">Recherche d'un adversaire digne de ce nom...</div>
+    <div style="width:60px; height:60px; border:6px solid rgba(255,0,128,0.2); border-left-color:var(--accent2); border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 40px;"></div>
+    <button id="btn-cancel-duel" class="btn-outline" style="width:100%;">Annuler</button>
+  </div>
+</div>
+<style>@keyframes spin { 100% { transform:rotate(360deg); } }</style>
+
+<!-- ════ SCREEN : DUEL JEU ════ -->
+<div id="screen-duel" style="display:none; width:100%; max-width:680px; position:relative; z-index:1;">
+  <div id="duel-topbar">
+    <div style="text-align:left;">
+      <div style="font-weight:800; font-size:1.1rem; color:var(--green);">Toi</div>
+      <div style="font-size:2rem; font-weight:900;"><span id="dp1-score">0</span></div>
+    </div>
+    <div style="font-size:2.5rem; font-weight:900; color:rgba(255,255,255,0.1);">VS</div>
+    <div style="text-align:right;">
+      <div id="dp2-name" style="font-weight:800; font-size:1.1rem; color:var(--accent2);">Adversaire</div>
+      <div style="font-size:2rem; font-weight:900;"><span id="dp2-score">0</span></div>
+    </div>
+  </div>
+
+  <div style="width:100%; height:8px; background:rgba(0,0,0,0.5); border-radius:50px; margin-bottom:24px; overflow:hidden;">
+    <div id="duel-timer-fill" style="height:100%; background:linear-gradient(90deg, var(--yellow), var(--red)); width:100%;"></div>
+  </div>
+
+  <div class="glass-card" style="text-align:center;">
+    <div id="duel-q-index" style="font-size:.9rem; font-weight:800; color:var(--yellow); text-transform:uppercase; margin-bottom:12px; letter-spacing:2px;">Question 1 / 5</div>
+    <div id="duel-q-text" style="font-size:1.4rem; font-weight:900; margin-bottom:30px; line-height:1.4;">Chargement...</div>
+    <div id="duel-answers" style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;"></div>
+    <div id="duel-feedback" style="display:none; padding:18px; border-radius:16px; font-weight:800; font-size:1.1rem;"></div>
+  </div>
+</div>
+
+<!-- ════ SCREEN : DUEL RESULTATS ════ -->
+<div id="screen-duel-results" style="display:none; position:relative; z-index:1; width:100%; max-width:500px; text-align:center;">
+  <div class="glass-card">
+    <div id="dr-icon" style="font-size:5.5rem; margin-bottom:20px;">🏆</div>
+    <h2 id="dr-title" style="font-size:2.5rem; font-weight:900; margin-bottom:10px;">Victoire !</h2>
+    <div id="dr-desc" style="font-size:1.2rem; color:var(--muted); margin-bottom:30px;">Tu as battu l'adversaire</div>
+    <div id="dr-trophies" style="font-size:3rem; font-weight:900; color:var(--yellow); margin-bottom:40px; text-shadow: 0 0 20px rgba(245,166,35,0.4);">+10 🏆</div>
+    <button id="btn-duel-back" class="btn-primary" style="width:100%;">Retour au menu</button>
+  </div>
+</div>
+
+<!-- ════ SCREEN : TOURNOI ════ -->
+<div id="screen-tournament" style="display:none;">
+  <div id="t-topbar">
+    <button class="btn-outline" id="btn-back-home-tournoi" style="padding: 10px 16px; font-size:0.9rem;">← Abandonner</button>
+    <div style="display:flex; gap:10px;">
+      <span style="background:rgba(255,0,85,0.2); color:var(--red); padding:10px 16px; border-radius:12px; font-weight:900;">⏳ <span id="t-timer">60s</span></span>
+      <span style="background:var(--card); padding:10px 16px; border-radius:12px; font-weight:800; border:var(--border);">⭐ <span id="t-score" style="color:var(--green)">0</span> / 10</span>
+    </div>
+  </div>
+
+  <div id="t-question-card" class="glass-card">
+    <div id="t-question-number" style="font-size:.8rem; font-weight:800; color:var(--yellow); margin-bottom:12px; letter-spacing:2px; text-transform:uppercase;">Question 1 / 10</div>
+    <div style="position:relative; display:inline-block; width:100%;">
+      <img id="t-question-img" src="" alt="" style="width:100%; border-radius:12px; margin-bottom:15px; display:none;" />
+      <button id="t-btn-credits" style="display:none; position:absolute; bottom:25px; right:10px; background:rgba(0,0,0,0.6); color:white; border:none; border-radius:50%; width:30px; height:30px; font-weight:bold; cursor:pointer;" title="Crédits & Licence">i</button>
+    </div>
+    <div id="t-credits-popup" style="display:none; position:absolute; bottom:60px; right:10px; background:var(--surface); padding:10px; border-radius:8px; border:var(--border); font-size:0.8rem; z-index:10; box-shadow:0 10px 25px rgba(0,0,0,0.5);"></div>
+    <div id="t-question-text" style="font-size:1.3rem; font-weight:800; margin-bottom:30px;">Prêt ?</div>
+    <div id="t-answers" style="display:flex; flex-direction:column; gap:12px;"></div>
+  </div>
+
+  <div id="t-results" class="glass-card" style="display:none; text-align:center;">
+    <h2 style="font-size:2rem; font-weight:900; margin-bottom:20px; color:var(--yellow);">Fin du Tournoi !</h2>
+    <div style="font-size:4rem; font-weight:900; color:var(--green); margin-bottom:20px;" id="t-final-score">0 / 10</div>
+    <div id="t-save-status" style="color:var(--muted); font-weight:800; margin-bottom:30px;"></div>
+    <button id="btn-t-lb" class="btn-primary" style="width:100%; display:none;">Voir le Classement</button>
+  </div>
+</div>
+
+<!-- ════ SCREEN : CLASSEMENT ════ -->
+<div id="screen-leaderboard" style="display:none;">
+  <div class="lb-header">
+    <h2>Classements</h2>
+    <button class="btn-outline" id="btn-back-home-lb" style="padding: 10px 16px;">← Retour</button>
+  </div>
+  
+  <div class="auth-tabs" style="margin-bottom: 20px;">
+    <div class="auth-tab active" id="tab-lb-general">Général 🏆</div>
+    <div class="auth-tab" id="tab-lb-tournament">Tournoi du Jour ⏱️</div>
+  </div>
+
+  <table id="lb-table-general">
+    <thead><tr><th>RANG</th><th>PILOTE</th><th>TROPHÉES</th><th>RECORD</th></tr></thead>
+    <tbody id="lb-body"></tbody>
+  </table>
+
+  <table id="lb-table-tournament" style="display:none;">
+    <thead><tr><th>RANG</th><th>PILOTE</th><th>SCORE / 10</th><th>TEMPS RESTANT</th></tr></thead>
+    <tbody id="lb-body-tournament"></tbody>
+  </table>
+</div>
+
+<!-- Level-up overlay -->
+<div id="level-badge">
+  <div class="lv-emoji" id="lv-emoji" style="font-size: 4rem;"></div>
+  <div class="lv-text" id="lv-text" style="font-size: 1.5rem; font-weight:900; color:#fff; margin-top:10px;"></div>
+</div>
+
+<!-- Legal Footer -->
+<footer style="position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); font-size: 0.65rem; color: var(--muted); text-align: center; padding: 6px 10px; z-index: 1000; border-top: 1px solid rgba(255,255,255,0.05);">
+  Banque pédagogique indépendante conçue à partir de sources publiques. Ce contenu n’est ni produit, ni validé, ni agréé par l’administration française chargée de l’examen du Code de la route.
+</footer>
+
+</body>
+</html>
