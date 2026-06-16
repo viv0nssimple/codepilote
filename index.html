@@ -221,6 +221,7 @@
       if (currentUser && userProfile) {
         $('header-user').textContent = `👤 ${userProfile.pseudo}`;
         $('header-user').style.display    = 'inline-flex';
+        $('btn-header-ecurie').style.display = 'inline-flex';
         $('btn-logout').style.display     = 'inline-flex';
         $('header-xp-wrap').style.display = 'flex';
 
@@ -243,6 +244,7 @@
         $('header-coins').textContent = `🪙 ${userProfile.coins || 0}`;
       } else {
         $('header-user').style.display    = 'none';
+        $('btn-header-ecurie').style.display = 'none';
         $('btn-logout').style.display     = 'none';
         $('header-xp-wrap').style.display = 'none';
         $('header-daily').style.display   = 'none';
@@ -290,6 +292,14 @@
       if (unsubEcurie) { unsubEcurie(); unsubEcurie = null; }
       if (unsubEcurieMembers) { unsubEcurieMembers(); unsubEcurieMembers = null; }
       showScreen('screen-home');
+    });
+
+    $('btn-header-ecurie').addEventListener('click', () => {
+      if (currentUser && userProfile && userProfile.onboardingDone) {
+        playSound('tick');
+        showScreen('screen-ecurie');
+        loadEcurieData();
+      }
     });
 
     $('header-logo').addEventListener('click', () => {
@@ -1306,8 +1316,22 @@
         if(data.division === 'argent') badge = '🥈';
         if(data.division === 'or') badge = '🥇';
         if(data.division === 'diamant') badge = '💎';
-        $('ecurie-division-badge').textContent = badge;
         
+        const logoBadge = $('ecurie-logo-badge');
+        if (data.logo) {
+          logoBadge.style.backgroundImage = `url(${data.logo})`;
+          logoBadge.textContent = '';
+        } else {
+          logoBadge.style.backgroundImage = 'none';
+          logoBadge.textContent = badge;
+        }
+        
+        if (data.chefUserId === currentUser.uid) {
+          $('btn-ecurie-admin').style.display = 'block';
+        } else {
+          $('btn-ecurie-admin').style.display = 'none';
+        }
+
         loadEcurieLeaderboard(data.division);
       });
 
@@ -1410,7 +1434,137 @@
       } catch(e) { console.error(e); }
     });
 
-    $('btn-ecurie-refresh-lb').addEventListener('click', () => {
+    
+    // ----------------------------------------------------
+    // RECHERCHE PUBLIQUE
+    // ----------------------------------------------------
+    $('btn-ecurie-refresh-public').addEventListener('click', async () => {
+      const list = $('ecurie-public-list');
+      list.innerHTML = '<div style="text-align:center; color:gray;">Recherche en cours...</div>';
+      try {
+        const q = query(collection(db, 'ecuries'), orderBy('weeklyPoints', 'desc'), limit(15));
+        const snap = await getDocs(q);
+        list.innerHTML = '';
+        if(snap.empty) {
+          list.innerHTML = '<div style="text-align:center; color:gray;">Aucune écurie trouvée.</div>';
+          return;
+        }
+        snap.forEach(d => {
+          const e = d.data();
+          const max = e.maxMembers !== undefined ? e.maxMembers : 20;
+          if (max === 0) return; // closed
+          const divIcon = e.division==='diamant'?'💎':e.division==='or'?'🥇':e.division==='argent'?'🥈':'🥉';
+          
+          const div = document.createElement('div');
+          div.style.background = 'rgba(255,255,255,0.05)';
+          div.style.padding = '10px';
+          div.style.borderRadius = '8px';
+          div.style.display = 'flex';
+          div.style.justifyContent = 'space-between';
+          div.style.alignItems = 'center';
+          div.innerHTML = `
+            <div>
+              <div style="font-weight:bold;">${divIcon} ${e.name}</div>
+              <div style="font-size:0.8rem; color:var(--muted);">${e.weeklyPoints||0} pts</div>
+            </div>
+            <button class="btn-primary" style="padding:4px 8px; font-size:0.7rem;" data-id="${d.id}" data-code="${e.inviteCode}">Rejoindre</button>
+          `;
+          list.appendChild(div);
+        });
+
+        list.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            $('ecurie-join-code').value = btn.getAttribute('data-code');
+            $('btn-ecurie-join').click();
+          });
+        });
+
+      } catch(e) {
+        console.error(e);
+        list.innerHTML = '<div style="text-align:center; color:var(--red);">Erreur réseau.</div>';
+      }
+    });
+
+    // ----------------------------------------------------
+    // PANNEAU ADMINISTRATION
+    // ----------------------------------------------------
+    let uploadedLogoBase64 = null;
+
+    $('btn-ecurie-admin').addEventListener('click', async () => {
+      if(!userProfile || !userProfile.ecurieId) return;
+      const snap = await getDoc(doc(db, 'ecuries', userProfile.ecurieId));
+      if(!snap.exists()) return;
+      const data = snap.data();
+      
+      $('ecurie-settings-name').value = data.name;
+      $('ecurie-settings-max').value = data.maxMembers !== undefined ? data.maxMembers : 20;
+      uploadedLogoBase64 = data.logo || null;
+      if (uploadedLogoBase64) {
+        $('ecurie-settings-logo-preview').style.backgroundImage = `url(${uploadedLogoBase64})`;
+        $('ecurie-settings-logo-preview').textContent = '';
+      } else {
+        $('ecurie-settings-logo-preview').style.backgroundImage = 'none';
+        $('ecurie-settings-logo-preview').textContent = '?';
+      }
+      $('ecurie-settings-error').textContent = '';
+      $('ecurie-settings-modal').style.display = 'flex';
+    });
+
+    $('btn-close-settings').addEventListener('click', () => {
+      $('ecurie-settings-modal').style.display = 'none';
+    });
+
+    $('ecurie-settings-logo-file').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if(!file) return;
+      if(file.size > 2 * 1024 * 1024) {
+        $('ecurie-settings-error').textContent = "Image trop volumineuse (Max 2Mo).";
+        return;
+      }
+      $('ecurie-settings-error').textContent = "Chargement...";
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 100; canvas.height = 100;
+          const ctx = canvas.getContext('2d');
+          const size = Math.min(img.width, img.height);
+          const sx = (img.width - size) / 2;
+          const sy = (img.height - size) / 2;
+          ctx.drawImage(img, sx, sy, size, size, 0, 0, 100, 100);
+          uploadedLogoBase64 = canvas.toDataURL('image/jpeg', 0.8);
+          $('ecurie-settings-logo-preview').style.backgroundImage = `url(${uploadedLogoBase64})`;
+          $('ecurie-settings-logo-preview').textContent = '';
+          $('ecurie-settings-error').textContent = "";
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    $('btn-save-ecurie-settings').addEventListener('click', async () => {
+      $('ecurie-settings-error').textContent = "Sauvegarde...";
+      try {
+        const newName = $('ecurie-settings-name').value.trim();
+        const newMax = parseInt($('ecurie-settings-max').value, 10);
+        if(!newName || newName.length > 20) {
+          $('ecurie-settings-error').textContent = "Nom invalide.";
+          return;
+        }
+        await updateDoc(doc(db, 'ecuries', userProfile.ecurieId), {
+          name: newName,
+          maxMembers: newMax,
+          logo: uploadedLogoBase64
+        });
+        $('ecurie-settings-modal').style.display = 'none';
+      } catch(e) {
+        console.error(e);
+        $('ecurie-settings-error').textContent = "Erreur de sauvegarde.";
+      }
+    });
+
+$('btn-ecurie-refresh-lb').addEventListener('click', () => {
       if(userProfile.ecurieId && unsubEcurie) {
          // loadEcurieLeaderboard called by onSnapshot, but we can force UI update if needed.
          $('btn-ecurie-refresh-lb').style.transform = 'rotate(180deg)';
@@ -1696,6 +1850,7 @@
   <div class="subtitle">La route, en mode e-sport 🏁</div>
   <div class="header-actions">
     <span id="header-user" class="header-btn"></span>
+    <button id="btn-header-ecurie" class="btn-primary" style="display:none; padding:8px 12px; font-size:0.9rem; margin-right:10px;">🏎️ Écurie</button>
     <button id="btn-logout" class="header-btn">Déconnexion</button>
   </div>
   <div id="header-xp-wrap">
@@ -1839,6 +1994,14 @@
         </div>
       </div>
       <div id="ecurie-error" style="color:var(--red); margin-top:15px; font-weight:bold;"></div>
+
+      <!-- Recherche d'Ecurie Publique -->
+      <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05); margin-top:15px;">
+        <h4 style="margin-bottom:10px;">Écuries Publiques</h4>
+        <button id="btn-ecurie-refresh-public" class="btn-outline" style="width:100%; margin-bottom:10px; font-size:0.8rem;">🔄 Rafraîchir la liste</button>
+        <div id="ecurie-public-list" style="max-height:200px; overflow-y:auto; text-align:left; display:flex; flex-direction:column; gap:10px;"></div>
+      </div>
+
     </div>
   </div>
 
@@ -1846,7 +2009,8 @@
   <div id="ecurie-dashboard" style="display:none;">
     <div class="glass-card" style="padding:20px; margin-bottom:20px; text-align:center; position:relative;">
       <button id="btn-ecurie-leave" class="btn-outline" style="position:absolute; top:15px; right:15px; padding:6px 12px; font-size:0.8rem; border-color:var(--red); color:var(--red);">Quitter</button>
-      <div id="ecurie-division-badge" style="font-size:3rem; margin-bottom:10px;">🥉</div>
+      <button id="btn-ecurie-admin" class="btn-primary" style="display:none; position:absolute; top:15px; left:15px; padding:6px 12px; font-size:0.8rem;">⚙️ Gérer</button>
+      <div id="ecurie-logo-badge" style="font-size:3rem; margin:0 auto 10px auto; width:80px; height:80px; border-radius:50%; background:rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; background-size:cover; background-position:center;">🥉</div>
       <h2 id="ecurie-name-display" style="font-size:2rem; font-weight:900; margin-bottom:5px;">Nom Ecurie</h2>
       <p style="color:var(--muted); font-size:0.9rem; margin-bottom:15px;">Ligue <span id="ecurie-division-name" style="font-weight:bold; color:#fff;">Bronze</span></p>
       
