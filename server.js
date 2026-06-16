@@ -20,23 +20,30 @@ function renderPatchedIndex(_req, res) {
 
     let html = source;
 
-    const headInjection = [
-      '<link rel="stylesheet" href="/home-refresh.css?v=3">',
-      '<script src="/home-refresh-pre.js?v=3"></script>'
-    ].join('\n');
-
-    const bodyInjection = '<script src="/home-refresh.js?v=3"></script>';
-
-    if (!html.includes('/home-refresh.css')) {
+    // 1. home-refresh-pre.js avant le script module principal
+    if (!html.includes('/home-refresh-pre.js')) {
       html = html.replace(
         '<script type="module">',
-        `${headInjection}\n<script type="module">`
+        '<script src="/home-refresh-pre.js?v=5"></script>\n<script type="module">'
       );
     }
 
-    if (!html.includes('/home-refresh.js')) {
-      html = html.replace('</body>', `${bodyInjection}\n</body>`);
+    // 2. home-refresh.css juste avant </head>
+    if (!html.includes('/home-refresh.css')) {
+      html = html.replace('</head>', '<link rel="stylesheet" href="/home-refresh.css?v=5">\n</head>');
     }
+
+    // 3. home-refresh.js juste avant </body>
+    if (!html.includes('/home-refresh.js')) {
+      html = html.replace('</body>', '<script src="/home-refresh.js?v=5"></script>\n</body>');
+    }
+
+    // Empêcher le cache pendant les tests
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
+    });
 
     res.type('html').send(html);
   });
