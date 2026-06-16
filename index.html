@@ -1315,7 +1315,7 @@
 
     $('btn-ecurie-create').addEventListener('click', async () => {
       const name = $('ecurie-create-name').value.trim();
-      if (!name) return;
+      if (!name) return $('ecurie-error').textContent = 'Veuillez entrer un nom pour l\'Écurie.';
       if (name.length > 20) return $('ecurie-error').textContent = 'Nom trop long (max 20).';
       
       if (!userProfile || (userProfile.coins || 0) < 100) {
@@ -1811,7 +1811,7 @@
         <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05);">
           <h4 style="margin-bottom:10px;">Créer une Écurie</h4>
           <input type="text" id="ecurie-create-name" placeholder="Nom de l'écurie..." style="width:100%; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:10px; color:var(--text); font-family:'Outfit'; outline:none; margin-bottom:10px;" />
-          <button id="btn-ecurie-create" class="btn-primary" style="width:100%;">Créer</button>
+          <button id="btn-ecurie-create" class="btn-primary" style="width:100%;">Créer (100 🪙)</button>
         </div>
 
         <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05);">
