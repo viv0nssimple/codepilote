@@ -1595,24 +1595,7 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
     }
 
     // ASTUCE CLIENT : Reset manuel des ligues (remplace la Cloud Function pour le développement)
-    $('btn-admin-reset').addEventListener('click', async () => {
-      if(!confirm("⚠️ ADMIN : Déclencher la fin de semaine ? Cela va promouvoir les tops écuries et remettre les compteurs à 0 !")) return;
-      
-      const btn = $('btn-admin-reset');
-      btn.textContent = "Calcul en cours...";
-      btn.disabled = true;
-
-      try {
-        const divisionsOrder = ['bronze', 'argent', 'or', 'diamant'];
-        const ecuriesByDiv = { bronze:[], argent:[], or:[], diamant:[] };
-        
-        // 1. Récupérer TOUTES les écuries
-        const snap = await getDocs(collection(db, 'ecuries'));
-        snap.forEach(d => {
-          const e = d.data();
-          e.id = d.id;
-          if (ecuriesByDiv[e.division]) ecuriesByDiv[e.division].push(e);
-        });
+    
 
         const updates = [];
 
@@ -1682,7 +1665,7 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
       --border:   2px solid #334155;
     }
     *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
-    body { font-family:'Outfit',system-ui,sans-serif; background:#0A0F1C; color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 16px 60px; overflow-x:hidden; position:relative; }
+    body { font-family:'Outfit',system-ui,sans-serif; background:#0A0F1C; color:var(--text); min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding:24px 16px 60px; overflow-x:hidden; position:relative; }
     
     .bg-glow { position: fixed; top: -10%; left: -10%; width: 50vw; height: 50vw; background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%); border-radius: 50%; z-index: -1; pointer-events: none; animation: floatGlow 15s infinite alternate ease-in-out; filter: blur(60px); }
     .bg-glow-2 { position: fixed; bottom: -10%; right: -10%; width: 60vw; height: 60vw; background: radial-gradient(circle, rgba(168,85,247,0.12) 0%, transparent 70%); border-radius: 50%; z-index: -1; pointer-events: none; animation: floatGlow2 20s infinite alternate ease-in-out; filter: blur(60px); }
@@ -1927,7 +1910,12 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
         <h3>Mon Écurie</h3>
         <p>Rejoins une guilde, cumulez des points ensemble et montez en Ligue !</p>
       </div>
-    </div>
+    
+  <div class="scroll-indicator" style="text-align:center; padding:10px; opacity:0.6; animation:pulse 2s infinite; font-size:0.9rem; margin-top:20px; color:var(--accent2);">
+    👇 Scrolle pour découvrir les autres modes 👇
+  </div>
+
+</div>
     <button class="btn-outline" id="btn-leaderboard" style="width:100%; margin-top:10px;">🥇 Voir les Classements</button>
   </div>
 </div>
@@ -1969,7 +1957,7 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
     <h2 style="font-size:2rem; font-weight:900;">Mon Écurie 🏎️</h2>
     <div>
-      <button id="btn-admin-reset" class="btn-outline" style="padding: 10px 16px; font-size:0.9rem; border-color:var(--yellow); color:var(--yellow); margin-right:10px;">🔧 Dev: Reset</button>
+      
       <button class="btn-outline" id="btn-back-home-ecurie" style="padding: 10px 16px; font-size:0.9rem;">← Retour</button>
     </div>
   </div>
@@ -2011,17 +1999,17 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
       <button id="btn-ecurie-leave" class="btn-outline" style="position:absolute; top:15px; right:15px; padding:6px 12px; font-size:0.8rem; border-color:var(--red); color:var(--red);">Quitter</button>
       <button id="btn-ecurie-admin" class="btn-primary" style="display:none; position:absolute; top:15px; left:15px; padding:6px 12px; font-size:0.8rem;">⚙️ Gérer</button>
       <div id="ecurie-logo-badge" style="font-size:3rem; margin:0 auto 10px auto; width:80px; height:80px; border-radius:50%; background:rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; background-size:cover; background-position:center;">🥉</div>
-      <h2 id="ecurie-name-display" style="font-size:2rem; font-weight:900; margin-bottom:5px;">Nom Ecurie</h2>
-      <p style="color:var(--muted); font-size:0.9rem; margin-bottom:15px;">Ligue <span id="ecurie-division-name" style="font-weight:bold; color:#fff;">Bronze</span></p>
+      <h2 id="ecurie-name-display" style="font-size:2rem; font-weight:900; margin-bottom:5px;">---</h2>
+      <p style="color:var(--muted); font-size:0.9rem; margin-bottom:15px;">Ligue <span id="ecurie-division-name" style="font-weight:bold; color:#fff;">---</span></p>
       
       <div style="display:flex; justify-content:center; gap:20px; margin-bottom:20px;">
         <div style="background:rgba(0,0,0,0.3); padding:10px 20px; border-radius:12px;">
           <div style="font-size:0.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:1px;">Points Hebdo</div>
-          <div id="ecurie-points-display" style="font-size:1.8rem; font-weight:900; color:var(--green);">0</div>
+          <div id="ecurie-points-display" style="font-size:1.8rem; font-weight:900; color:var(--green);">---</div>
         </div>
         <div style="background:rgba(0,0,0,0.3); padding:10px 20px; border-radius:12px;">
           <div style="font-size:0.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:1px;">Code Invitation</div>
-          <div id="ecurie-code-display" style="font-size:1.5rem; font-weight:900; letter-spacing:3px; color:var(--accent2); cursor:pointer;" onclick="navigator.clipboard.writeText(this.innerText); alert('Code copié !')">ABCDEF</div>
+          <div id="ecurie-code-display" style="font-size:1.5rem; font-weight:900; letter-spacing:3px; color:var(--accent2); cursor:pointer;" onclick="navigator.clipboard.writeText(this.innerText); alert('Code copié !')">---</div>
         </div>
       </div>
     </div>
@@ -2093,10 +2081,10 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
   <div id="results-screen" class="glass-card" style="display:none; text-align:center;">
     <span id="trophy-icon" style="font-size:5rem; display:block; margin-bottom:10px;">🏆</span>
     <h2 id="result-title" style="font-size:2rem; font-weight:900; margin-bottom:20px;"></h2>
-    <div style="font-size:4rem; font-weight:900; color:var(--yellow); margin-bottom:30px;" id="final-score">0</div>
+    <div style="font-size:4rem; font-weight:900; color:var(--yellow); margin-bottom:30px;" id="final-score">---</div>
     <div style="display:flex; justify-content:center; gap:20px; margin-bottom:30px;">
-      <div><div style="font-size:1.5rem; font-weight:900; color:var(--green);" id="r-correct">0</div><div style="font-size:.8rem; color:var(--muted); text-transform:uppercase;">Bonnes</div></div>
-      <div><div style="font-size:1.5rem; font-weight:900; color:var(--red);" id="r-wrong">0</div><div style="font-size:.8rem; color:var(--muted); text-transform:uppercase;">Erreurs</div></div>
+      <div><div style="font-size:1.5rem; font-weight:900; color:var(--green);" id="r-correct">---</div><div style="font-size:.8rem; color:var(--muted); text-transform:uppercase;">Bonnes</div></div>
+      <div><div style="font-size:1.5rem; font-weight:900; color:var(--red);" id="r-wrong">---</div><div style="font-size:.8rem; color:var(--muted); text-transform:uppercase;">Erreurs</div></div>
     </div>
     <div id="xp-gained-wrap" style="display:none; justify-content:center; align-items:center; gap:10px; margin-bottom:20px;">
       <span style="font-size:.9rem; color:var(--muted); font-weight:800;">XP GAGNÉS :</span> <span id="xp-gained-val" style="font-size:1.5rem; font-weight:900; color:var(--accent);">+0</span>
