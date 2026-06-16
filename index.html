@@ -197,12 +197,23 @@
     });
 
     async function loadProfile() {
+      if (!currentUser) return;
       const snap = await getDoc(doc(db, 'users', currentUser.uid));
-      userProfile = snap.exists() ? snap.data() : null;
-      if (userProfile && userProfile.coins === undefined) {
-        // Retrocompatibilité : on donne 100 CodeCoins aux anciens joueurs
-        await updateDoc(doc(db, 'users', currentUser.uid), { coins: 100 });
-        userProfile.coins = 100;
+      if (!snap.exists()) {
+        console.warn("Profil Firestore manquant, création automatique...");
+        const defaultProfile = { 
+          pseudo: currentUser.email ? currentUser.email.split('@')[0] : 'Joueur', 
+          xp: 0, level: 1, trophies: 0, coins: 100, onboardingDone: true, ecurieId: null 
+        };
+        await setDoc(doc(db, 'users', currentUser.uid), defaultProfile);
+        userProfile = defaultProfile;
+      } else {
+        userProfile = snap.data();
+        if (userProfile.coins === undefined) {
+          // Retrocompatibilité
+          await updateDoc(doc(db, 'users', currentUser.uid), { coins: 100 });
+          userProfile.coins = 100;
+        }
       }
     }
 
