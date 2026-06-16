@@ -1594,57 +1594,7 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
         }).catch(e => console.error(e));
     }
 
-    // ASTUCE CLIENT : Reset manuel des ligues (remplace la Cloud Function pour le développement)
-    
 
-        const updates = [];
-
-        // 2. Traiter chaque division
-        for (let div of divisionsOrder) {
-          let ecuries = ecuriesByDiv[div];
-          // Trier par points décroissants
-          ecuries.sort((a,b) => (b.weeklyPoints || 0) - (a.weeklyPoints || 0));
-          
-          const currentDivIndex = divisionsOrder.indexOf(div);
-          
-          ecuries.forEach((e, index) => {
-            let newDiv = e.division;
-            // Top 3 monte (sauf Diamant)
-            if (index < 3 && currentDivIndex < 3) {
-              newDiv = divisionsOrder[currentDivIndex + 1];
-            }
-            // Bottom 3 descend (sauf Bronze), si l'écurie est dans les 3 dernières et qu'il y a plus de 6 écuries
-            else if (index >= ecuries.length - 3 && currentDivIndex > 0 && ecuries.length > 5) {
-              newDiv = divisionsOrder[currentDivIndex - 1];
-            }
-            
-            updates.push({ id: e.id, newDiv });
-          });
-        }
-
-        // 3. Appliquer les mises à jour et reset les points
-        for (let u of updates) {
-          await updateDoc(doc(db, 'ecuries', u.id), {
-            division: u.newDiv,
-            weeklyPoints: 0
-          });
-          
-          // Reset des membres (Optionnel mais recommandé)
-          const mSnap = await getDocs(collection(db, `ecuries/${u.id}/members`));
-          for (let m of mSnap.docs) {
-            await updateDoc(doc(db, `ecuries/${u.id}/members`, m.id), { weeklyContribution: 0 });
-          }
-        }
-
-        alert("✅ Reset terminé avec succès !");
-      } catch (e) {
-        console.error(e);
-        alert("❌ Erreur pendant le reset.");
-      }
-      
-      btn.textContent = "🔧 Dev: Reset";
-      btn.disabled = false;
-    });
 
   </script>
 
