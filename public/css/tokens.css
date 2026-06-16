@@ -1,0 +1,34 @@
+/* CodePilote — Design tokens (source unique de vérité) */
+:root {
+  --cp-bg: #f7f8fc;
+  --cp-surface: rgba(255, 255, 255, 0.95);
+  --cp-text: #172033;
+  --cp-muted: #667085;
+  --cp-blue: #4f7cff;
+  --cp-blue-soft: #edf3ff;
+  --cp-orange: #ff7a59;
+  --cp-orange-soft: #fff0eb;
+  --cp-green: #38c99a;
+  --cp-green-soft: #eafbf5;
+  --cp-purple: #8b6cff;
+  --cp-purple-soft: #f3efff;
+  --cp-line: rgba(23, 32, 51, 0.08);
+  --cp-shadow: 0 20px 55px rgba(34, 48, 78, 0.09);
+  --cp-shadow-hover: 0 28px 72px rgba(34, 48, 78, 0.14);
+  --cp-radius: 26px;
+  --cp-ease: cubic-bezier(.2, .8, .2, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cp-bg: #0f1320;
+    --cp-surface: rgba(28, 34, 51, 0.95);
+    --cp-text: #eef1f8;
+    --cp-muted: #9aa3b8;
+    --cp-blue-soft: rgba(79, 124, 255, 0.14);
+    --cp-orange-soft: rgba(255, 122, 89, 0.12);
+    --cp-purple-soft: rgba(139, 108, 255, 0.14);
+    --cp-line: rgba(255, 255, 255, 0.08);
+    --cp-shadow: 0 20px 55px rgba(0, 0, 0, 0.45);
+    --cp-shadow-hover: 0 28px 72px rgba(0, 0, 0, 0.55);
+  }
+}

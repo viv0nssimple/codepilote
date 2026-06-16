@@ -1,0 +1,20 @@
+/* CodePilote — Écrans spécifiques */
+#screen-auth { width: min(960px, 100%); max-width: 960px; min-height: calc(100dvh - 130px); display: grid; place-items: center; position: relative; margin: 0 auto; }
+#screen-home { width: min(1120px, 100%); max-width: 1120px; padding: 0 8px; margin: 8px auto 0; }
+#card-reviser, #card-jouer-container, #btn-home-progress, #btn-home-profile { color: var(--cp-text); border: 1px solid rgba(255, 255, 255, .88); box-shadow: var(--cp-shadow); overflow: hidden; isolation: isolate; }
+#card-reviser {
+  min-height: 330px; padding: clamp(28px, 5vw, 48px); border-radius: 34px;
+  background: radial-gradient(circle at 88% 22%, rgba(79,124,255,.20), transparent 24%), radial-gradient(circle at 78% 88%, rgba(139,108,255,.14), transparent 25%), linear-gradient(135deg, #f9fbff 0%, var(--cp-blue-soft) 100%);
+}
+#card-reviser::before { content: ""; position: absolute; width: 128px; height: 128px; right: 18%; top: -54px; border: 22px solid rgba(255, 255, 255, .55); border-radius: 50%; transform: rotate(-15deg); }
+#card-reviser h2 { font-family: "Outfit", sans-serif; font-size: clamp(2rem, 5vw, 3.25rem); letter-spacing: -.055em; }
+#bento-recommendation { max-width: 500px; line-height: 1.65; }
+#btn-home-main-action { min-height: 52px; border-radius: 16px; text-transform: none; letter-spacing: 0; box-shadow: 0 14px 28px rgba(79, 124, 255, .22); }
+.cp-activity-meta { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px; color: #315ee8; font-size: .86rem; font-weight: 750; background: rgba(255, 255, 255, .72); border: 1px solid rgba(79, 124, 255, .12); padding: 8px 12px; border-radius: 999px; }
+.cp-bento-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; align-items: stretch; }
+#card-jouer-container, #btn-home-progress, #btn-home-profile { min-height: 260px; padding: 27px; border-radius: var(--cp-radius); transition: transform 260ms var(--cp-ease), box-shadow 260ms ease, opacity 220ms ease; }
+#card-jouer-container { background: radial-gradient(circle at 92% 8%, rgba(255,122,89,.26), transparent 35%), linear-gradient(145deg, #fffaf7, var(--cp-orange-soft)); }
+#card-jouer-container:hover, #btn-home-progress:hover, #btn-home-profile:hover { transform: translateY(-6px); box-shadow: var(--cp-shadow-hover); }
+.cp-muted-card { opacity: .5; pointer-events: none; }
+#jouer-expanded button:hover:not(:disabled) { transform: translateY(-5px); }
+.cp-sound-toggle { min-height: 42px; grid-column: 1 / -1; display: flex; flex-direction: row; justify-content: center; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(255, 255, 255, .18); color: white; box-shadow: none; border: 1px solid rgba(255, 255, 255, .28); border-radius: 12px; cursor: pointer; }
