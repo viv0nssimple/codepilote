@@ -1778,25 +1778,18 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
 <div class="bg-glow-2"></div>
 
 <!-- ── HEADER ── -->
-<header>
-  <div class="logo" id="header-logo" style="cursor:pointer;" title="Retour au menu">CodePilote</div>
-  <div class="subtitle">La route, en mode e-sport 🏁</div>
-  <div class="header-actions">
-    <span id="header-user" class="header-btn"></span>
-    <button id="btn-header-ecurie" class="btn-primary" style="display:none; padding:8px 12px; font-size:0.9rem; margin-right:10px;">🏎️ Écurie</button>
-    <button id="btn-logout" class="header-btn">Déconnexion</button>
-  </div>
-  <div id="header-xp-wrap">
-    <span id="header-level-label"></span>
-    <div id="header-xp-bar"><div id="header-xp-fill" style="width:0%"></div></div>
-    <div class="stats-row">
-      <span id="header-xp-txt"></span>
-      <span id="header-daily"></span>
-      <span id="header-trophies"></span>
-      <span id="header-coins" style="color:#FCD34D;"></span>
-    </div>
+
+
+<header style="display:flex; justify-content:space-between; align-items:center;">
+  <div id="header-logo" class="logo" style="cursor:pointer;" aria-label="Retour à l'accueil">CodePilote</div>
+  <div class="header-actions" style="display:flex; align-items:center;">
+    <div id="header-level-label" class="header-btn" style="font-weight:bold; margin-right:8px;">---</div>
+    <div id="header-user" class="header-btn" style="font-weight:bold; margin-right:8px; display:none;">---</div>
+    <button id="btn-logout" class="btn-outline header-btn" title="Se déconnecter" aria-label="Se déconnecter" style="display:none;"></button>
   </div>
 </header>
+
+
 
 <!-- ════ SCREEN : AUTH ════ -->
 <div id="screen-auth">
@@ -1824,51 +1817,112 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
 </div>
 
 <!-- ════ SCREEN : HOME ════ -->
-<div id="screen-home" style="display:none">
-  <div class="home-grid">
-    <div class="home-card solo" id="btn-home-solo">
-      <div class="home-icon">🚦</div>
-      <div class="home-info">
-        <h3>Entraînement Solo</h3>
-        <p>15 questions pour réviser sans stress. Gagne de l'XP et monte en niveau.</p>
-      </div>
-    </div>
-    <div class="home-card duel" id="btn-home-duel">
-      <div class="home-icon">⚔️</div>
-      <div class="home-info">
-        <h3>Mode Duel (1v1)</h3>
-        <p>Affronte un joueur en temps réel sur 5 questions. Gagne des trophées !</p>
-      </div>
-    </div>
-    <div class="home-card tournoi" id="btn-home-tournament">
-      <div class="home-icon">🏆</div>
-      <div class="home-info">
-        <h3>Tournoi du Jour</h3>
-        <p>10 questions, 60 secondes max. Tente de faire le meilleur score du jour.</p>
-      </div>
-    </div>
-    <div class="home-card" id="btn-home-social" style="background: rgba(168,85,247,0.1); border-color: var(--accent2);">
-      <div class="home-icon" style="color: var(--accent2);">🤝</div>
-      <div class="home-info">
-        <h3>Amis & Défis</h3>
-        <p>Ajoute tes amis, comparez vos stats et lancez-vous des défis !</p>
-      </div>
-    </div>
-    <div class="home-card ecurie" id="btn-home-ecurie">
-      <div class="home-icon">🏎️</div>
-      <div class="home-info">
-        <h3>Mon Écurie</h3>
-        <p>Rejoins une guilde, cumulez des points ensemble et montez en Ligue !</p>
-      </div>
-    </div>
-  </div>
+
+<div id="screen-home" style="display:none; width:100%;">
   
-  <div class="scroll-indicator" style="text-align:center; padding:10px; opacity:0.6; animation:pulse 2s infinite; font-size:0.9rem; margin-top:5px; margin-bottom:15px; color:var(--accent2); width:100%;">
-    👇 Scrolle pour découvrir les classements 👇
+  <!-- 1. GRANDE CARTE : RÉVISER -->
+  <div id="card-reviser">
+    <div style="flex:1; min-width:280px; z-index:2; position:relative;">
+      <h2 style="color:var(--text); margin-bottom:10px;">Salut, <span id="bento-pseudo" class="skeleton skeleton-text"></span> !</h2>
+      <p id="bento-recommendation" class="skeleton skeleton-text" style="margin-bottom:25px;">Chargement...</p>
+      
+      <button id="btn-home-main-action" class="btn-primary" style="background:var(--cp-blue); color:#fff; padding:14px 28px; font-size:1.1rem; border-radius:20px; box-shadow:0 10px 20px rgba(79,124,255,0.15); display:inline-flex; align-items:center; gap:10px; border:none;">
+        <i data-lucide="play" width="20" height="20"></i> Continuer l'entraînement
+      </button>
+    </div>
+    <div style="flex:1; min-width:200px; display:flex; align-items:center; justify-content:center; position:relative; z-index:1;">
+      <!-- Abstract Illustration Placeholder -->
+      <div style="width:160px; height:160px; background:linear-gradient(135deg, var(--cp-blue), #8B6CFF); border-radius:40px; transform:rotate(-10deg); box-shadow:0 20px 40px rgba(79,124,255,0.2); display:flex; align-items:center; justify-content:center; position:relative;">
+        <i data-lucide="book-open" width="64" height="64" color="#fff" stroke-width="1.5"></i>
+        <div style="position:absolute; top:-10px; right:-10px; width:40px; height:40px; background:var(--cp-green); border-radius:50%; filter:blur(10px); opacity:0.8;"></div>
+      </div>
+    </div>
   </div>
 
-  <button class="btn-outline" id="btn-leaderboard" style="width:100%;">🥇 Voir les Classements</button>
+  <!-- GRILLE BENTO : 3 CARTES SECONDAIRES -->
+  <div class="cp-bento-grid" style="display:grid; margin-top:24px;">
+    
+    <!-- 2. CARTE JOUER -->
+    <div id="card-jouer-container">
+      <div class="card-icon" style="background:rgba(255,122,89,0.1); color:var(--cp-orange); display:flex; align-items:center; justify-content:center; margin-bottom:20px;">
+        <i data-lucide="gamepad-2" width="32" height="32" stroke-width="2"></i>
+      </div>
+      <h3 style="margin-bottom:8px;">Jouer</h3>
+      <p style="color:var(--cp-muted);">Choisis ton mode et démarre la partie.</p>
+      
+      <!-- Contenu Extensible -->
+      <div id="jouer-expanded">
+        <button id="btn-home-solo">
+          <i data-lucide="user" width="28"></i>
+          <div><strong>Solo</strong><br><span style="font-size:0.85em; opacity:0.8;">Entraînement</span></div>
+        </button>
+        <button id="btn-home-duel">
+          <i data-lucide="swords" width="28"></i>
+          <div><strong>Duel</strong><br><span style="font-size:0.85em; opacity:0.8;">Face à face</span></div>
+        </button>
+        <button id="btn-home-tournament">
+          <i data-lucide="trophy" width="28"></i>
+          <div><strong>Tournoi</strong><br><span style="font-size:0.85em; opacity:0.8;">Compétition</span></div>
+        </button>
+        <button disabled style="opacity:0.5; cursor:not-allowed;">
+          <i data-lucide="users" width="28"></i>
+          <div><strong>Coop</strong><br><span style="font-size:0.85em; opacity:0.8;">Bientôt</span></div>
+        </button>
+      </div>
+      
+      <div style="position:absolute; bottom:-10px; right:-10px; opacity:0.05; transform:rotate(-20deg); pointer-events:none;">
+        <i data-lucide="zap" width="120" height="120"></i>
+      </div>
+    </div>
+
+    <!-- 3. CARTE MON PROGRÈS -->
+    <div id="btn-home-progress">
+      <div class="card-icon" style="background:rgba(56,201,154,0.1); color:var(--cp-green); display:flex; align-items:center; justify-content:center; margin-bottom:20px;">
+        <i data-lucide="trending-up" width="32" height="32" stroke-width="2"></i>
+      </div>
+      <h3 style="margin-bottom:8px;">Mon progrès</h3>
+      <p style="color:var(--cp-muted);">Découvre ce que tu maîtrises déjà.</p>
+      
+      <div style="margin-top:20px;">
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:700; color:var(--cp-muted); margin-bottom:8px;">
+          <span>Niveau Actuel</span>
+          <span id="bento-xp-txt" class="skeleton skeleton-text"></span>
+        </div>
+        <div style="width:100%; height:8px; background:rgba(23,32,51,0.05); border-radius:10px; overflow:hidden;">
+          <div id="bento-xp-fill" style="height:100%; background:var(--cp-green); width:0%; transition:width 0.6s ease;"></div>
+        </div>
+      </div>
+
+      <div style="position:absolute; bottom:-10px; right:-10px; opacity:0.05; transform:rotate(15deg); pointer-events:none;">
+        <i data-lucide="target" width="120" height="120"></i>
+      </div>
+    </div>
+
+    <!-- 4. CARTE MON PROFIL -->
+    <div id="btn-home-profile">
+      <div class="card-icon" style="background:rgba(139,108,255,0.1); color:var(--cp-purple); display:flex; align-items:center; justify-content:center; margin-bottom:20px;">
+        <i data-lucide="user-circle" width="32" height="32" stroke-width="2"></i>
+      </div>
+      <h3 style="margin-bottom:8px;">Mon profil</h3>
+      <p style="color:var(--cp-muted);">Identité, Écurie et Classements.</p>
+      
+      <div style="display:flex; gap:10px; margin-top:20px;">
+        <div style="background:rgba(23,32,51,0.04); padding:6px 12px; border-radius:12px; display:flex; align-items:center; gap:6px; font-size:0.85rem; font-weight:700;">
+          <i data-lucide="users" width="14" color="var(--cp-blue)"></i> Social
+        </div>
+        <div style="background:rgba(23,32,51,0.04); padding:6px 12px; border-radius:12px; display:flex; align-items:center; gap:6px; font-size:0.85rem; font-weight:700;">
+          <i data-lucide="flag" width="14" color="var(--cp-purple)"></i> Écurie
+        </div>
+      </div>
+
+      <div style="position:absolute; bottom:-10px; right:-10px; opacity:0.05; transform:rotate(-10deg); pointer-events:none;">
+        <i data-lucide="award" width="120" height="120"></i>
+      </div>
+    </div>
+
+  </div>
 </div>
+
 
 <!-- ════ SCREEN : SOCIAL ════ -->
 <div id="screen-social" style="display:none; width:100%; max-width:680px; position:relative; z-index:1;">
@@ -1922,7 +1976,7 @@ $('btn-ecurie-refresh-lb').addEventListener('click', () => {
         <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05);">
           <h4 style="margin-bottom:10px;">Créer une Écurie</h4>
           <input type="text" id="ecurie-create-name" placeholder="Nom de l'écurie..." style="width:100%; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:10px; color:var(--text); font-family:'Outfit'; outline:none; margin-bottom:10px;" />
-          <button id="btn-ecurie-create" class="btn-primary" style="width:100%;">Créer (100 🪙)</button>
+          <button id="btn-ecurie-create" class="btn-primary" style="width:100%;">Créer pour 100 CodeCoins</button>
         </div>
 
         <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05);">
